@@ -18,11 +18,12 @@ Every change to this repository is made in a working session: one AI agent sessi
 ## Closing
 
 1. A separate AI agent, given only this repository, reads it cold and reports what it cannot follow. The session fixes what it can before closing.
-2. The session writes its entry in [BUILD-LOG.md](BUILD-LOG.md), for a reader who was not there: every decision with its reason, every wrong turn caught.
-3. A reader that did not do the work (a separate AI agent, briefed only to check) checks the session's record before it is relied on. It also checks the public log against the private notes, both ways: everything decided or corrected there has a line here, and nothing here lacks a source there.
-4. What that reader finds is added to both records as a dated correction, below the text it corrects. The text above is never edited.
-5. Every clock time in the record is either read from a clock or marked as an estimate.
-6. Files and commit messages are scanned for private words, then committed and pushed.
+2. The session asks me what I learned, and records my words exactly in [LEARNED.md](LEARNED.md). The close does not finish without my words, or my saying there is nothing this time.
+3. The session writes its entry in [BUILD-LOG.md](BUILD-LOG.md), for a reader who was not there: every decision with its reason, every wrong turn caught.
+4. A reader that did not do the work (a separate AI agent, briefed only to check) checks the session's record before it is relied on. It also checks the public log against the private notes, both ways: everything decided or corrected there has a line here, and nothing here lacks a source there.
+5. What that reader finds is added to both records as a dated correction, below the text it corrects. The text above is never edited.
+6. Every clock time in the record is either read from a clock or marked as an estimate.
+7. Files and commit messages are scanned for private words, then committed and pushed.
 
 ## What waits for my word
 

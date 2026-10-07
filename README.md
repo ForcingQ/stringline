@@ -20,9 +20,10 @@ Founded on 7 October 2026. So far it holds the intent, the files that say how th
 
 1. [INTENT.md](INTENT.md): what this is, why, and where it is going.
 2. [BUILD-LOG.md](BUILD-LOG.md): what each session did, decided and got wrong, dated.
-3. [DECISIONS.md](DECISIONS.md): each decision and its reason.
-4. [OPEN-PROTOCOL.md](OPEN-PROTOCOL.md): how a working session opens and closes, and what waits for my word.
-5. [CLAUDE.md](CLAUDE.md): the instructions any AI agent working in this repository follows.
+3. [LEARNED.md](LEARNED.md): what I learned, in my own words, each session.
+4. [DECISIONS.md](DECISIONS.md): each decision and its reason.
+5. [OPEN-PROTOCOL.md](OPEN-PROTOCOL.md): how a working session opens and closes, and what waits for my word.
+6. [CLAUDE.md](CLAUDE.md): the instructions any AI agent working in this repository follows.
 
 ## Who builds it
 
