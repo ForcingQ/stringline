@@ -1,6 +1,6 @@
 # SPEC · what will be built, precisely enough to build it unaided
 
-A specification here answers one question: could someone who was not in the room build this from the page alone? Each part says what exists now, what is in and out, each decision with its reason, how it connects, what must not change, and what "done" means in a way that can be tested. The order the parts are built in is [MAP.md](MAP.md). Drafted at the third session (7 October 2026), stress-tested by two readers in two rounds; it waits for the owner's approval before anything is built from it, and his word is recorded in the build log.
+A specification here answers one question: could someone who was not in the room build this from the page alone? Each part says what exists now, what is in and out, each decision with its reason, how it connects, what must not change, and what "done" means in a way that can be tested. The order the parts are built in is [MAP.md](MAP.md). Drafted at the third session (7 October 2026), stress-tested by two readers in two rounds, and approved by the owner the same day (the map's placement section as placement only); his words are in the build log's third entry. A later change to any part waits for his word again.
 
 ## The five parts
 

@@ -16,7 +16,7 @@
 | `gotcha` | string, one sentence | the one thing that bites a first user |
 | `earned_by` | string, one sentence | the failure that earned the tool; check 2 compares it to what the tool prints for `--earned-by` |
 | `files` | array of paths | the tool's own files, the shared `tools/runlog.py` included if it uses it; the currency check watches them, and check 2 compares the list to what the tool prints for `--files` |
-| `verified_against` | string, a commit id | the latest commit that touched `files` when the card was last read against the tool |
+| `verified_against` | string, a commit id | the latest commit that touched `files` when the card was last read against the tool; the currency check ([SPEC-guard.md](SPEC-guard.md), check 1) compares it to the commits since |
 
 **Not a key: "what it has caught".** It is derived at render time by `runlog.caught_line(tool)` from this tool's *real* rows, newest first, with each run's date; planted rows are never read for it. No readable real row: *no real run yet*. Real rows with nothing caught: *1 real run, nothing caught yet* or *n real runs, nothing caught yet*. Otherwise the caught lines, at most ten. Whenever a real run could not see everything, or a run file could not be read, the sentence says how many, so a blind read never shows as a clean one. *Why:* a typed field would drift from the log, and a count that included plants would call a plant a catch. The card may read *nothing caught yet* through release; a line that says so is the truth this field exists to tell.
 

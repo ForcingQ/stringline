@@ -14,7 +14,7 @@ The full intent, in my words, is [INTENT.md](INTENT.md). Where any file here dis
 
 ## Where it stands
 
-Founded on 7 October 2026. So far it holds the intent, the files that say how the work runs, three entries of the build log, the map of what depends on what ([MAP.md](MAP.md)), and the specification of what is built next ([SPEC.md](SPEC.md) and its five parts). No tool exists yet; the first one, a checker for quotes of a person's own words, is specified and is built in the next session. [WORDS.txt](WORDS.txt) already holds the owner's typed lines that the intent quotes, so the checker has real work from its first run.
+Founded on 7 October 2026. So far it holds the intent, the files that say how the work runs, three entries of the build log, the map of what depends on what ([MAP.md](MAP.md)), and the specification of what is built next ([SPEC.md](SPEC.md) and its five parts). No tool exists yet; the first one, a checker for quotes of a person's own words, is specified and is built in the next session. [WORDS.txt](WORDS.txt) already holds the owner's typed lines that the intent and LEARNED.md quote, one block per quoted span and nothing else, so the checker has real work from its first run; a reply he gave twice appears twice.
 
 ## Read in this order
 

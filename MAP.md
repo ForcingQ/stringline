@@ -1,6 +1,6 @@
 # MAP · what depends on what, and the order it sets
 
-Written at the third session (7 October 2026) by the method the owner builds with: list every part, ask what each one needs and what needs it, find the foundations (many things depend on them, they depend on little), build those first and build them for reuse, group the rest into tracks, and set a checkpoint between tiers. Every position below is explained by a dependency; the session numbers are the plan's guess, not the rule. The founding's projection of this map had two lines this session does not inherit; see "New here".
+Written at the third session (7 October 2026) by the method the owner builds with: list every part, ask what each one needs and what needs it, find the foundations (many things depend on them, they depend on little), build those first and build them for reuse, group the rest into tracks, and set a checkpoint between tiers. Every position below is explained by a dependency; the session numbers are the plan's guess, not the rule. A projection of this map drawn before the first session (a private page) had two lines this session does not inherit; see "New here".
 
 **Dependency kinds.** *Data* (hard: B needs a structure A makes) · *pattern* (soft: B should reuse a shape A sets) · *context* (building A makes B's design clear).
 
@@ -8,7 +8,7 @@ Written at the third session (7 October 2026) by the method the owner builds wit
 
 | Tier | Surface (the manual) | Guard (runs on every change) | Tools (recreated from the practice) |
 |---|---|---|---|
-| **Tier 0 · foundations** (the founding; standing) | the intent, the name, the one-screen rule, the record rule | two folders; the push check refusing private words, shown on 16 cases (14 planted, 2 controls); the clock-time check; **standing: the full-history scan, re-run whenever the word list grows** | — |
+| **Tier 0 · foundations** (the founding; standing) | the intent, the name, the one-screen rule, the record rule | two folders; the push check refusing private words, shown on 16 cases (14 planted, 2 controls); the check that every clock time in the record says whether it was read or estimated; **standing: the scan of every commit's files and messages for private words, re-run whenever the word list grows** | — |
 | **Tier 1 · specified** (this session) | the corpus schema and the card ([SPEC-corpus.md](SPEC-corpus.md), [SPEC-card.md](SPEC-card.md)) | the five checks ([SPEC-guard.md](SPEC-guard.md)) | the run log ([SPEC-run-log.md](SPEC-run-log.md)); the quote checker ([SPEC-your-words.md](SPEC-your-words.md)); the owner's typed lines ([WORDS.txt](WORDS.txt)) |
 | **Tier 2 · built** (planned: session 4, four lanes) | A: the corpus, the renderer, check 3, the README and agent instructions written from the corpus, the first terms | B: checks 1 to 4, each firing on a committed planted fault; the push scanner as public code (placed, below); the workflow that runs every test and planted fault on every push | C: the run-log module first (merged before A imports it); the first tool's folder and `building` card; the checker, its self-test, its first real run; then the extractor (placed, below). D: the done-list checker as a hook (placed, below) |
 | **Tier 3 · surfaced** (planned: session 5) | the look of the manual (the owner's word); the walk of the record; the first card read against its tool and `released` on the owner's word | the guard running green on the manual itself | the first card's "what it has caught", read from the log |
@@ -23,11 +23,11 @@ Written at the third session (7 October 2026) by the method the owner builds wit
 
 ## Arrows that cross tracks
 
-Lane C's module merges before lanes A and B write against it (data). The guard runs on the manual only once the manual exists (Guard tier 3 needs Surface tier 2). A tool's card is written to the key table in the card spec, so lane C writes its `building` card without waiting for lane A (pattern, not data). Check 2's two-way rule needs lane C's tool folder and card (data). Check 3 is lane A's because it needs the renderer (data). **Merge order, so each lane's list can close:** C's module · A · C's tool · B, the watch re-rendering and committing on main after each.
+Lane C's module merges before lanes A and B write against it (data). The guard runs on the manual only once the manual exists (Guard tier 3 needs Surface tier 2). A tool's card is written to the key table in the card spec, so lane C writes its `building` card without waiting for lane A (pattern, not data). Check 2's two-way rule needs lane C's tool folder and card (data). Check 3 is lane A's because it needs the renderer (data). **Merge order, so each lane's list can close:** C's module · A · C's tool · B, the session lead re-rendering and committing on main after each.
 
 ## New here, not recreated
 
-Three parts the founding projection credited to the owner's earlier manuals exist in neither of them, measured at the second session: the README and the agent instructions written from the corpus; the private-word check counted as one of the guard's checks (its shape, a banned-phrase scan over live text, is old; running it on a push is new); and a card field "what it has caught". They are built here as new work and labelled so in the manual.
+Three parts that projection credited to the owner's earlier manuals exist in neither of them, measured at the second session: the README and the agent instructions written from the corpus; the private-word check counted as one of the guard's checks (its shape, a banned-phrase scan over live text, is old; running it on a push is new); and a card field "what it has caught". They are built here as new work and labelled so in the manual.
 
 ## Placed by the owner's ruling of 7 October, specified at a further session (S3b) with the same review seats
 
