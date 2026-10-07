@@ -1,3 +1,6 @@
+# local editor settings for the AI agent; personal, never shared
 .claude/settings.local.json
+# macOS folder metadata
 .DS_Store
+# a local file the owner's session tools write about session progress; never part of the project
 .frontier.json

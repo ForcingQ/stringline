@@ -7,7 +7,7 @@ A public build, being founded. Nothing here can be installed yet.
 Three things, in one repository:
 
 - **A tool.** Small instruments recreated from my own way of working with AI agents, starting with one that carries a person's words verbatim. Where a tool checks what an agent said, it says what it looked at, and says "can't tell" rather than "clean" when it cannot see.
-- **A build, told through its sessions and its code.** Built in public from the first commit: intent before anything, direction before code, work done by agents under written instructions, every spec reviewed by a reader that did not write it, and a dated log of each decision and each wrong turn caught.
+- **A build, told through its sessions and its code.** Built in public from the first commit: intent before anything, direction before code, work done by agents under written instructions, every spec reviewed by a separate reviewer (another AI agent, or a person) that did not write it, and a dated log of each decision and each wrong turn caught.
 - **A manual you walk.** A clean, structured surface: one card per released tool, a walk through the record, and how the work runs. It comes later, built from one source that also writes this README.
 
 The full intent, in my words, is [INTENT.md](INTENT.md). Where any file here disagrees with it, the intent governs.
@@ -26,7 +26,7 @@ Founded on 7 October 2026. So far it holds the intent, the files that say how th
 
 ## Who builds it
 
-Chad Wallace directs it. Claude Code, an AI coding agent, writes the implementation under my direction and review, and the record says which is which.
+I'm Chad Wallace, and I direct it. Claude Code, an AI coding agent, writes the implementation under my direction and review, and the record says which is which.
 
 ## What stays out
 

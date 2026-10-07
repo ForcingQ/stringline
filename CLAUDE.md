@@ -9,7 +9,7 @@ Everything in this repository is read by people who were never in the room. Use 
 ## Two folders
 
 - **This repository** is public-bound. Everything in it is written for a stranger.
-- **`../stringline-private`**, beside it, holds the owner's words, the working notes, review reports and the private close of each session. It is never inside this repository. Nothing moves from it into this one without being rewritten for a stranger. Name it only as `../stringline-private`.
+- **`../stringline-private`**, beside it, holds the owner's words, the working notes, review reports and the private close of each session. It is never inside this repository. Nothing moves from it into this one without being rewritten for a stranger. Name it only as `../stringline-private`. If you are working on the owner's machine, read `../stringline-private/OPEN-LOCAL.md` when a session opens. It holds the local setup this repository cannot.
 
 ## Before every push
 
