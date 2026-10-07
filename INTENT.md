@@ -6,6 +6,8 @@ Lines in quotes are mine, with my typing corrected; … marks words of mine left
 
 *"I am building a public tool to mirror my designs from private work to showcase both a tool, a build told through the sessions and the code, and a design/output that the reader can engage with through a clean, interactive and well structured environment. The repo tells the story, the tool lets them engage in it."*
 
+I rebuild in the open, from scratch, designs I first proved in private work.
+
 Three things, in one repository:
 
 - **A tool.** Small instruments recreated from my own practice, starting with one that carries my words verbatim. Where a tool checks what an agent said, it says what it looked at and what it compared against, and says can't tell, never clean, when it cannot see. No check is trusted until it has been shown it can fire on the fault it guards against, planted where that fault would really arrive.
@@ -13,6 +15,8 @@ Three things, in one repository:
 - **A manual the reader walks.** A clean, interactive, well-structured surface, built the way I build operating manuals for products I build: one source held as data; one card per released tool, saying what it is, the first thing to do, the one gotcha and what it has caught; a walk through the record; and how the work runs. The same source will be the README and the instructions for any agent working here, checked against the code on every change, so it cannot quietly fall behind.
 
 *"The builder framework and mindset of how I work, creating a tool that is a product of it as well as a guidebook through it"*
+
+That is, the step-by-step method I build with (see what is true, name it, map what depends on what, order it, specify it, build, test, learn), and the habits of mind behind it.
 
 ## Why
 
