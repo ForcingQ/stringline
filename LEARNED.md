@@ -9,3 +9,7 @@ What I learn building this, recorded the session it lands, in my own words. One 
 ## 2026-10-07 · seeing and naming
 
 - *"nothing this time"*
+
+## 2026-10-07 · map, order, spec
+
+- *"nothing this time"*

@@ -23,4 +23,4 @@ Everything in this repository is read by people who were never in the room. Use 
 - Say what you looked at and what you compared against. When you cannot see something, say "can't tell", never "clean".
 - A check is not trusted until it has been shown to fire on the fault it guards against.
 - The record says who did what: the owner directs and reviews; the agent writes the implementation.
-- Every page of the manual, and every file here, fits on one screen.
+- Every page of the manual, every record of its source, and every file of prose here fits on one screen (60 lines). Code is not bound by it.

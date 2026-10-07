@@ -6,7 +6,7 @@ A public build, being founded. Nothing here can be installed yet.
 
 Three things, in one repository:
 
-- **A tool.** Small instruments recreated from my own way of working with AI agents, starting with one that pulls a person's own typed messages out of an AI session's record, exactly as typed and with their times, and checks every quote of them against the original. Where a tool checks what an agent said, it says what it looked at, and says "can't tell" rather than "clean" when it cannot see.
+- **A tool.** Small instruments recreated from my own way of working with AI agents, starting with one that checks every quote of a person's own words against what that person actually typed, and says exact, corrected, absent or can't check. Pulling the typed messages out of an AI session's record comes after it. Where a tool checks what an agent said, it says what it looked at, and says "can't tell" rather than "clean" when it cannot see.
 - **A build, told through its sessions and its code.** Built in public from the first commit: intent before anything, direction before code, work done by agents under written instructions, every spec reviewed by a separate reviewer (another AI agent, or a person) that did not write it, and a dated log of each decision and each wrong turn caught.
 - **A manual you walk.** A clean, structured surface: one card per released tool, a walk through the record, and how the work runs. It comes later, built from one source that also writes this README.
 
@@ -14,7 +14,7 @@ The full intent, in my words, is [INTENT.md](INTENT.md). Where any file here dis
 
 ## Where it stands
 
-Founded on 7 October 2026. So far it holds the intent, the files that say how the work runs, and two entries of the build log. No tool exists yet; the first one has been chosen (a checker for quotes of a person's own words) and is planned next. The order of what comes next is in the build log.
+Founded on 7 October 2026. So far it holds the intent, the files that say how the work runs, three entries of the build log, the map of what depends on what ([MAP.md](MAP.md)), and the specification of what is built next ([SPEC.md](SPEC.md) and its five parts). No tool exists yet; the first one, a checker for quotes of a person's own words, is specified and is built in the next session. [WORDS.txt](WORDS.txt) already holds the owner's typed lines that the intent quotes, so the checker has real work from its first run.
 
 ## Read in this order
 
@@ -22,8 +22,9 @@ Founded on 7 October 2026. So far it holds the intent, the files that say how th
 2. [BUILD-LOG.md](BUILD-LOG.md): what each session did, decided and got wrong, dated.
 3. [LEARNED.md](LEARNED.md): what I learned, in my own words, each session.
 4. [DECISIONS.md](DECISIONS.md): each decision and its reason.
-5. [OPEN-PROTOCOL.md](OPEN-PROTOCOL.md): how a working session opens and closes, and what waits for my word.
-6. [CLAUDE.md](CLAUDE.md): the instructions any AI agent working in this repository follows.
+5. [MAP.md](MAP.md) and [SPEC.md](SPEC.md): the order of the work, and what is built next.
+6. [OPEN-PROTOCOL.md](OPEN-PROTOCOL.md): how a working session opens and closes, and what waits for my word.
+7. [CLAUDE.md](CLAUDE.md): the instructions any AI agent working in this repository follows.
 
 ## Who builds it
 

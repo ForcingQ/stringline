@@ -18,7 +18,7 @@ Every change to this repository is made in a working session: one AI agent sessi
 ## Closing
 
 1. A separate AI agent, given only this repository, reads it cold and reports what it cannot follow. The session fixes what it can before closing.
-2. The session asks me what I learned, and records my words exactly in [LEARNED.md](LEARNED.md). The close does not finish without my words, or my saying there is nothing this time.
+2. The session asks me what I learned, and records my words exactly in [LEARNED.md](LEARNED.md), then appends the typed span to [WORDS.txt](WORDS.txt) so the quote checker can test the transcription. The close does not finish without my words, or my saying there is nothing this time.
 3. The session writes its entry in the build log ([BUILD-LOG.md](BUILD-LOG.md) lists every entry), for a reader who was not there: every decision about the build with its reason, every wrong turn caught.
 4. A reader that did not do the work (a separate AI agent, briefed only to check) checks the session's record before it is relied on. It also checks the public log against the private notes, both ways: every decision or wrong turn about the build itself has a line here, and nothing here lacks a source there. Upkeep of the owner's other work (keeping shared notes tidy, the state of other work, the lists and logs he keeps for himself) is kept private, and the entry counts it in one line: how many items, and why. The reader checks that every private item is either in the log or in that count.
 5. What that reader finds is added to both records as a dated correction, below the text it corrects. The text above is never edited.
@@ -27,7 +27,7 @@ Every change to this repository is made in a working session: one AI agent sessi
 
 ## What waits for my word
 
-The intent · which tools come next · each spec · every merge · the look of the manual · making this repository public · anything sent to any person · taking any word off the private word list.
+The intent · which tools come next · each spec · every merge · setting a tool's card to released · the look of the manual · making this repository public · anything sent to any person · taking any word off the private word list.
 
 Each of these comes to me as one line: what the session recommends, why, and what it will do on my yes. Everything else the session decides, records with its reason, and tells me after. A question the session can answer by reading or measuring is not a question for me.
 

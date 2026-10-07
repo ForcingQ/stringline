@@ -4,3 +4,5 @@
 .DS_Store
 # a local file the owner's session tools write about session progress; never part of the project
 .frontier.json
+# Python's compiled cache; never part of the project
+__pycache__/
