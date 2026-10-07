@@ -14,7 +14,7 @@ The full intent, in my words, is [INTENT.md](INTENT.md). Where any file here dis
 
 ## Where it stands
 
-Founded on 7 October 2026. So far it holds the intent, the files that say how the work runs, and the first entry of the build log. No tool exists yet. The order of what comes next is in the build log.
+Founded on 7 October 2026. So far it holds the intent, the files that say how the work runs, and two entries of the build log. No tool exists yet; the first one has been chosen (a checker for quotes of a person's own words) and is planned next. The order of what comes next is in the build log.
 
 ## Read in this order
 

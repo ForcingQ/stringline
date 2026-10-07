@@ -5,3 +5,7 @@ What I learn building this, recorded the session it lands, in my own words. One 
 ## 2026-10-07 · the founding
 
 - *"Publishing a line for every decision pulled house upkeep into a log meant for a stranger."*
+
+## 2026-10-07 · seeing and naming
+
+- *"nothing this time"*
