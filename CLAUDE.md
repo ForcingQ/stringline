@@ -13,7 +13,7 @@ Everything in this repository is read by people who were never in the room. Use 
 
 ## Before every push
 
-- Scan every changed file and every commit message against the private word list in `../stringline-private` (`python3 ../stringline-private/guard/scan.py --files <files>`, and `--stdin` for a message).
+- Scan every changed file and every commit message against the private word list (`python3 ../stringline-private/guard/scan.py --files <files>`, and `--stdin` for a message). The list and the script live in the private folder on purpose: a list of private words cannot be published.
 - The local pre-push hook runs the same scan over everything being pushed and refuses the push on any hit. It is local, never committed, so a fresh clone does not have it. Do not push from a clone without it, and never skip it.
 - Never change this repository's visibility. Making it public is the owner's act.
 
