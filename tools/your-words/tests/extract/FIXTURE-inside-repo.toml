@@ -1,0 +1,4 @@
+# refusals: the string fixture extracted to a place it must refuse
+mode = "refuse"
+records = ["FIXTURE-string.jsonl"]
+targets = ["inside", "link", "case", "alias"]

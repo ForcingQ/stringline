@@ -1,0 +1,5 @@
+# synthetic session record, written for this fixture; no real record is read
+exit = 2
+counts = { messages = 1, cant_read = 1 }
+out = "the readable rest\n"
+contains = ["timestamp without a zone"]

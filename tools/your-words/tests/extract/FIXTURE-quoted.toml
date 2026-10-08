@@ -1,0 +1,5 @@
+# synthetic session record, written for this fixture; no real record is read
+exit = 0
+counts = { messages = 2, later = 2 }
+out = "keep the record plain\n\nsee the note below\n"
+contains = ["later: 2 (typed 0 · pasted 1 · quoted back 1) at 2026-01-01T10:02:00.000Z, 2026-01-01T10:03:00.000Z"]

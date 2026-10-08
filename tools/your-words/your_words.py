@@ -28,7 +28,8 @@ import runlog  # noqa: E402  (imported by its path: tools/ holds no package)
 TOOL = "your-words"
 EARNED_BY = "A checker that filed what it could not check as not found."
 CATCHING = ["exact", "corrected", "absent", "cant_check"]
-OWN_FILES = ["tools/your-words/your_words.py", "tools/runlog.py"]
+OWN_FILES = ["tools/your-words/your_words.py", "tools/your-words/extract.py",
+             "tools/runlog.py"]
 OPEN, CLOSE, ELLIPSIS = '*"', '"*', "…"
 EDGE = ".,;:!?\"'()[]"
 CURLY = str.maketrans({"‘": "'", "’": "'", "‚": "'", "‛": "'",

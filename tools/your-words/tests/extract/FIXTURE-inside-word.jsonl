@@ -1,0 +1,4 @@
+{"type": "user", "timestamp": "2026-01-01T10:01:00.000Z", "promptSource": "typed", "message": {"role": "user", "content": "no"}}
+{"type": "user", "timestamp": "2026-01-01T10:02:00.000Z", "promptSource": "typed", "message": {"role": "user", "content": "I know the answer"}}
+{"type": "user", "timestamp": "2026-01-01T10:03:00.000Z", "promptSource": "typed", "message": {"role": "user", "content": "can"}}
+{"type": "user", "timestamp": "2026-01-01T10:04:00.000Z", "promptSource": "typed", "message": {"role": "user", "content": "I can't say yet"}}

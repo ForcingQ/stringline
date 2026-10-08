@@ -1,0 +1,6 @@
+# synthetic session record, written for this fixture; no real record is read
+records = ["FIXTURE-tie-a.jsonl", "FIXTURE-tie-b.jsonl"]
+exit = 0
+counts = { messages = 1, later = 1 }
+out = "the same words at one instant\n"
+contains = ["tie at one instant with"]

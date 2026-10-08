@@ -1,0 +1,4 @@
+# synthetic session record, written for this fixture; no real record is read
+exit = 0
+counts = { messages = 1 }
+out = "here is the file:\nwhat do you think of it\n"

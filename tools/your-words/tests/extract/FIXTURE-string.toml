@@ -1,0 +1,5 @@
+# synthetic session record, written for this fixture; no real record is read
+exit = 0
+counts = { messages = 1, events_skipped = 1 }
+out = "we keep the  notes in one plase so they can be read later\n"
+feed_checker = "FIXTURE-string-page.md"

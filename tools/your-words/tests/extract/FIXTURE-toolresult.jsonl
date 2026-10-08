@@ -1,0 +1,2 @@
+{"type": "user", "timestamp": "2026-01-01T10:01:00.000Z", "promptSource": "typed", "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1", "content": "the output of a tool"}]}}
+{"type": "user", "timestamp": "2026-01-01T10:02:00.000Z", "promptSource": "typed", "message": {"role": "user", "content": "thanks, that works"}}

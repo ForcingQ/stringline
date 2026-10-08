@@ -1,0 +1,4 @@
+# synthetic session record, written for this fixture; no real record is read
+exit = 0
+counts = { messages = 3, harness_skipped = 1 }
+out = "the real words\n\nwords queued while it worked\n\nan older record has no prompt source\n"

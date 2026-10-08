@@ -1,0 +1,546 @@
+#!/usr/bin/env python3
+"""extract: a person's typed messages, out of a Claude Code session record.
+
+How it is fired: by hand, python3 tools/your-words/extract.py <record.jsonl>
+[more] --out <file> [--times <file>] (a real run, one row in runs/ under the
+tool id your-words); with --planted "<what, by whom>" for a plant; with
+--no-log for no row; its self-test with --selftest.
+
+The failure that earned it: a curated words file that had silently corrected a
+misspelling the person typed, read as if it were the source.
+
+It is the second half of the your-words tool (SPEC-extractor.md): it writes
+the checker's plain-text shape, one typed message per block, white space kept
+exactly. It produces and catches nothing: it never exits 1, and its row's
+caught is always empty.
+
+Named limits. The table of harness tags below is hand-kept: a tag or marker
+outside it, a short paste the harness did not tag, a prompt an agent wrote
+into a seat's own record, and a summary the harness wrote after compaction
+each pass as typed. Words a person types as a slash command or its arguments
+go with the command. A block typed at a line's start with its closing tag is
+removed, as the harness's would be; a tag typed mid-line with no attribute, or
+with no closing tag, is kept. Removal runs to the first closing tag (a block
+whose body holds its own closing tag is not proven). A span quoted back from
+inside a message is not counted, only a whole message's text.
+Python 3.11 or later, standard library only, plus git.
+"""
+
+import argparse
+import datetime
+import json
+import os
+import re
+import sys
+import tempfile
+import tomllib
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.dirname(HERE))
+sys.path.insert(0, HERE)  # the checker beside it, also under python3 -I
+import runlog  # noqa: E402  (imported by its path: tools/ holds no package)
+
+TOOL = "your-words"
+OWN_FILES = ["tools/your-words/your_words.py", "tools/your-words/extract.py",
+             "tools/runlog.py"]
+TAGS = ("pasted_content", "system-reminder", "command-name", "command-message",
+        "command-args", "local-command-stdout", "local-command-stderr",
+        "local-command-caveat", "task-notification", "teammate-message",
+        "bash-input", "bash-stdout", "bash-stderr")
+MARKER = "[Request interrupted"
+TYPED_SOURCES = ("typed", "queued")
+COUNTS = ("messages", "later", "nothing_typed", "harness_skipped", "events_skipped",
+          "parts_skipped", "edge_blank_dropped", "inner_blank_kept", "cant_read")
+
+
+class CantRead(Exception):
+    """One line or event that could not be read."""
+
+
+# ---------------------------------------------------------------- reading
+
+def parse_stamp(value):
+    """A timestamp parsed as a UTC date; CantRead for another shape or no zone."""
+    if not isinstance(value, str):
+        raise CantRead("no timestamp")
+    try:
+        when = datetime.datetime.fromisoformat(value)
+    except ValueError:
+        raise CantRead("timestamp of another shape") from None
+    if when.tzinfo is None:
+        raise CantRead("timestamp without a zone")
+    return when.astimezone(datetime.timezone.utc)
+
+
+def remove_blocks(text):
+    """(text with the harness's blocks removed, [removed pasted_content bodies])."""
+    pastes = []
+    names = "|".join(re.escape(t) for t in TAGS)
+    opener = re.compile(r"<(" + names + r")([ >])")
+    pos = 0
+    while True:
+        m = opener.search(text, pos)
+        if not m:
+            break
+        name, start = m.group(1), m.start()
+        line_start = text.rfind("\n", 0, start) + 1
+        at_line_start = text[line_start:start].strip() == ""
+        tag_end = text.find(">", m.end(1))
+        has_attr = m.group(2) == " " and tag_end > m.end(2) and \
+            text[m.end(2):tag_end].strip() != ""
+        close = text.find(f"</{name}>", start)
+        if tag_end < 0 or close < 0 or not (at_line_start or has_attr):
+            pos = m.end(1)
+            continue
+        end = close + len(name) + 3
+        if name == "pasted_content":
+            pastes.append(text[tag_end + 1:close])
+        line_end = text.find("\n", end)
+        line_end = len(text) if line_end < 0 else line_end
+        if (text[line_start:start] + text[end:line_end]).strip() == "":
+            # the line where the block stood is left empty: drop it whole
+            if line_end < len(text):
+                text = text[:line_start] + text[line_end + 1:]
+            else:
+                text = text[:max(line_start - 1, 0)] if line_start else ""
+            pos = line_start if line_start <= len(text) else len(text)
+        else:
+            text = text[:start] + text[end:]
+            pos = start
+    return text, pastes
+
+
+def remove_markers(text):
+    return "\n".join(line for line in text.split("\n") if not line.startswith(MARKER))
+
+
+def trim_blank_edges(text):
+    """(text, edge blank lines dropped, inner blank lines kept)."""
+    lines = text.split("\n")
+    dropped = 0
+    while lines and lines[0].strip() == "":
+        lines.pop(0)
+        dropped += 1
+    while lines and lines[-1].strip() == "":
+        lines.pop()
+        dropped += 1
+    inner = sum(1 for line in lines if line.strip() == "")
+    return "\n".join(lines), dropped, inner
+
+
+def user_text(event):
+    """(raw typed text, [skipped part types]) or CantRead."""
+    message = event.get("message")
+    if not isinstance(message, dict):
+        raise CantRead("a user event with no message")
+    if message.get("role") != "user":
+        raise CantRead("a user event whose role is missing or not user")
+    content = message.get("content")
+    if isinstance(content, str):
+        return content, []
+    if not isinstance(content, list):
+        raise CantRead("a user event with no message.content in either shape")
+    texts, skipped = [], []
+    for part in content:
+        if not isinstance(part, dict) or not isinstance(part.get("type"), str):
+            raise CantRead("a part without a type")
+        if part["type"] == "text" and isinstance(part.get("text"), str):
+            texts.append(part["text"])
+        else:
+            skipped.append(part["type"])
+    return "".join(texts), skipped
+
+
+def assistant_texts(event):
+    message = event.get("message")
+    content = message.get("content") if isinstance(message, dict) else None
+    if not isinstance(content, list):
+        return []
+    return [p["text"] for p in content if isinstance(p, dict) and
+            p.get("type") == "text" and isinstance(p.get("text"), str)]
+
+
+def _is_word_char(ch):
+    return ch.isalnum() or ch in "'’"
+
+
+def recurs(needle, hay):
+    """needle as a whole, with a non-word character or the edge on each side."""
+    k = hay.find(needle)
+    while k >= 0:
+        before = hay[k - 1] if k > 0 else ""
+        after = hay[k + len(needle)] if k + len(needle) < len(hay) else ""
+        if not (before and _is_word_char(before)) and not (after and _is_word_char(after)):
+            return True
+        k = hay.find(needle, k + 1)
+    return False
+
+
+# ---------------------------------------------------------------- the run
+
+def _rel(path, root):
+    real = os.path.realpath(path)
+    if runlog.repo_root(real) == root:
+        return os.path.relpath(real, root).replace(os.sep, "/")
+    return None
+
+
+def inside_repository(folder, root):
+    """By folder identity and by git's own answer, never by path text."""
+    real = os.path.realpath(folder)
+    if runlog.repo_root(real) == root:
+        return True
+    here = real
+    while True:
+        try:
+            if os.path.samefile(here, root):
+                return True
+        except OSError:
+            pass
+        up = os.path.dirname(here)
+        if up == here:
+            return False
+        here = up
+
+
+def refuse_target(path, root, what):
+    """A reason to refuse an output path, or None."""
+    if os.path.lexists(path):
+        return f"{what}: a file exists there; nothing is overwritten"
+    folder = os.path.dirname(os.path.abspath(path))
+    if not os.path.isdir(folder):
+        return f"{what}: its folder does not exist"
+    if inside_repository(folder, root):
+        return (f"{what}: its folder lies inside the repository that holds the tool;"
+                " extracted text is private and never lands in the public tree")
+    return None
+
+
+def extract(records):
+    """Read every record; return a dict with the messages, report lines and counts."""
+    root = runlog.module_root()
+    counts = dict.fromkeys(COUNTS, 0)
+    events_skipped, parts_skipped = {}, {}
+    names, read, cant, could_not = [], [], [], []
+    material = []  # (when, record no, line no, kind, payload, stamp as recorded)
+    for rno, path in enumerate(records, 1):
+        rel = _rel(path, root)
+        name = rel or f"outside the repository (record {rno})"
+        names.append(name)
+        if rel and rel not in read:
+            read.append(rel)
+        elif not rel and runlog.OUTSIDE not in read:
+            read.append(runlog.OUTSIDE)
+        try:
+            with open(path, "rb") as fh:
+                data = fh.read().decode("utf-8")
+        except (OSError, UnicodeDecodeError) as exc:
+            why = "not UTF-8" if isinstance(exc, UnicodeDecodeError) else \
+                f"unreadable ({type(exc).__name__})"
+            cant.append((name, None, why))
+            continue
+        data = data.removeprefix("﻿")
+        for lno, line in enumerate(data.split("\n"), 1):
+            if not line.strip():
+                continue
+            try:
+                try:
+                    event = json.loads(line)
+                except json.JSONDecodeError:
+                    raise CantRead("not JSON") from None
+                if not isinstance(event, dict) or not isinstance(event.get("type"), str):
+                    raise CantRead("no type")
+                kind = event["type"]
+                if kind not in ("user", "assistant"):
+                    events_skipped[kind] = events_skipped.get(kind, 0) + 1
+                    continue
+                stamp = event.get("timestamp")
+                when = parse_stamp(stamp)
+                if kind == "assistant":
+                    for text in assistant_texts(event):
+                        material.append((when, rno, lno, "quoted", text, stamp))
+                    continue
+                source = event.get("promptSource")
+                if source is not None and not isinstance(source, str):
+                    raise CantRead("a promptSource that is not a string")
+                if event.get("isMeta") is True or (source is not None and
+                                                   source not in TYPED_SOURCES):
+                    counts["harness_skipped"] += 1
+                    continue
+                raw, skipped = user_text(event)
+                for t in skipped:
+                    parts_skipped[t] = parts_skipped.get(t, 0) + 1
+                material.append((when, rno, lno, "user", raw, stamp))
+            except CantRead as exc:
+                cant.append((name, lno, str(exc)))
+    material.sort(key=lambda m: (m[0], m[1], m[2]))
+    messages = []  # dicts: text, stamp, record, line, later lists, tie
+    for when, rno, lno, kind, payload, stamp in material:
+        if kind == "quoted":
+            for msg in messages:
+                if (when, rno, lno) > msg["key"] and recurs(msg["text"], payload):
+                    msg["quoted"].append(stamp)
+            continue
+        text, pastes = remove_blocks(payload)
+        text = remove_markers(text)
+        for msg in messages:
+            for paste in pastes:
+                if recurs(msg["text"], paste):
+                    msg["pasted"].append(stamp)
+                    break
+        if not text.strip():
+            counts["nothing_typed"] += 1
+            continue
+        text, dropped, inner = trim_blank_edges(text)
+        counts["edge_blank_dropped"] += dropped
+        same = next((m for m in messages if m["text"] == text), None)
+        for msg in messages:
+            if msg is not same and recurs(msg["text"], text):
+                msg["typed"].append(stamp)
+        if same is not None:
+            same["typed"].append(stamp)
+            if when == same["when"]:
+                same["tie"].append(f"{names[rno - 1]}:{lno}")
+            continue
+        counts["inner_blank_kept"] += inner
+        tie = [m["where"] for m in messages if m["when"] == when]
+        messages.append({"text": text, "stamp": stamp, "when": when, "key": (when, rno, lno),
+                         "where": f"{names[rno - 1]}:{lno}",
+                         "private": names[rno - 1].startswith(runlog.OUTSIDE),
+                         "typed": [], "pasted": [], "quoted": [], "tie": tie})
+    counts["messages"] = len(messages)
+    counts["later"] = sum(len(m["typed"]) + len(m["pasted"]) + len(m["quoted"])
+                          for m in messages)
+    counts["events_skipped"] = sum(events_skipped.values())
+    counts["parts_skipped"] = sum(parts_skipped.values())
+    counts["cant_read"] = len(cant)
+    outside_cant = {}
+    for name, lno, why in cant:
+        if name.startswith(runlog.OUTSIDE):
+            outside_cant[name] = outside_cant.get(name, 0) + 1
+        else:
+            could_not.append(f"{name}:{lno}" if lno else f"{name}: {why}")
+    for name, n in outside_cant.items():
+        could_not.append(f"{name}: {n} line(s) could not be read")
+    return {"messages": messages, "counts": counts, "events": events_skipped,
+            "parts": parts_skipped, "cant": cant, "read": read, "could_not": could_not}
+
+
+def later_text(m):
+    k = len(m["typed"]) + len(m["pasted"]) + len(m["quoted"])
+    times = m["typed"] + m["pasted"] + m["quoted"]
+    at = f" at {', '.join(str(t) for t in times)}" if times else ""
+    return (f"later: {k} (typed {len(m['typed'])} · pasted {len(m['pasted'])}"
+            f" · quoted back {len(m['quoted'])}){at}")
+
+
+def report(result):
+    lines = []
+    for n, m in enumerate(result["messages"], 1):
+        if m["private"]:
+            shown = m["where"]
+        else:
+            words = m["text"].split()
+            shown = " ".join(words[:8]) + ("…" if len(words) > 8 else "")
+        tie = f" · tie at one instant with {', '.join(m['tie'])}, kept in record order" \
+            if m["tie"] else ""
+        lines.append(f"{n} · {m['stamp']} · {shown} · {later_text(m)}{tie}")
+    for name, lno, why in result["cant"]:
+        lines.append(f"can't read · {name}" + (f":{lno}" if lno else "") + f" · {why}")
+    c = result["counts"]
+
+    def by_type(d):
+        return ", ".join(f"{k} {d[k]}" for k in sorted(d)) or "none"
+    lines.append(f"messages: {c['messages']} · later occurrences: {c['later']} · nothing typed:"
+                 f" {c['nothing_typed']} · harness events skipped: {c['harness_skipped']}"
+                 f" · other events skipped: {by_type(result['events'])} · parts skipped:"
+                 f" {by_type(result['parts'])} · edge blank lines dropped:"
+                 f" {c['edge_blank_dropped']} · inner blank lines kept: {c['inner_blank_kept']}"
+                 f" · can't read: {c['cant_read']}")
+    lines.append("read: " + (", ".join(result["read"]) or "nothing"))
+    if result["could_not"]:
+        lines.append("could not see: " + "; ".join(result["could_not"]))
+    elif not result["messages"]:
+        lines.append("could not see: no typed message was found")
+    else:
+        lines.append("could not see: every line was read (what a person typed outside"
+                     " the record is never seen)")
+    return lines
+
+
+def words_file(result):
+    return "".join(m["text"] + "\n" + ("\n" if i < len(result["messages"]) - 1 else "")
+                   for i, m in enumerate(result["messages"]))
+
+
+def times_file(result):
+    out, block = [], 0
+    for m in result["messages"]:
+        pieces = [p for p in re.split(r"\n[ \t\r\f\v]*\n(?:[ \t\r\f\v]*\n)*", m["text"])
+                  if p.strip()]
+        for _ in pieces:
+            block += 1
+            out.append(f"block {block} · {m['stamp']} · {m['where']} · {later_text(m)}")
+    return "".join(line + "\n" for line in out)
+
+
+def exit_code(result):
+    return 2 if result["cant"] or not result["messages"] else 0
+
+
+def run(records, out, times, planted, no_log, quiet=False):
+    root = runlog.module_root()
+    for path, what in ((out, "--out"), (times, "--times")):
+        if path:
+            why = refuse_target(path, root, what)
+            if why:
+                print(f"refused · {why}")
+                return 2
+    result = extract(records)
+    with open(out, "x", encoding="utf-8") as fh:
+        fh.write(words_file(result))
+    if times:
+        with open(times, "x", encoding="utf-8") as fh:
+            fh.write(times_file(result))
+    if not quiet:
+        for line in report(result):
+            print(line)
+    if not no_log:
+        kind = "planted" if planted else "real"
+        path = runlog.write(TOOL, OWN_FILES, kind, planted or "", "person", result["read"],
+                            [], dict(result["counts"]), [], result["could_not"])
+        print(f"logged: {os.path.relpath(path, root)} ({kind})")
+    return exit_code(result)
+
+
+# ---------------------------------------------------------------- self-test
+
+TESTS = os.path.join(HERE, "tests", "extract")
+
+
+def selftest(no_log):
+    results, totals = [], dict.fromkeys(COUNTS, 0)
+    root = runlog.module_root()
+
+    def expect(label, ok, shown=""):
+        results.append(bool(ok))
+        print(f"{'ok  ' if ok else 'FAIL'} {label}" + (f" -> {shown}" if shown else ""))
+
+    with tempfile.TemporaryDirectory() as tmp:
+        cases = sorted(f for f in os.listdir(TESTS) if f.endswith(".toml"))
+        for case in cases:
+            with open(os.path.join(TESTS, case), "rb") as fh:
+                want = tomllib.load(fh)
+            label = case.removesuffix(".toml")
+            records = [os.path.join(TESTS, r) for r in want.get("records", [label + ".jsonl"])]
+            print(f"     {label}: {', '.join(os.path.basename(r) for r in records)}")
+            mode = want.get("mode", "extract")
+            if mode == "refuse":
+                for name, target in refusal_targets(want["targets"], tmp, root):
+                    if target is None:
+                        expect(f"{label}: {name}", False, "could not build this target here")
+                        continue
+                    before = os.path.exists(target) and open(target, "rb").read()
+                    code = run(records, target, None, "selftest", True, quiet=True)
+                    after = os.path.exists(target) and open(target, "rb").read()
+                    expect(f"{label}: {name} refused, nothing written",
+                           code == 2 and before == after, f"exit {code}")
+                continue
+            result = extract(records)
+            out = words_file(result)
+            for line in report(result):
+                print(f"       {line}")
+            got = {k: v for k, v in result["counts"].items() if v}
+            for k, v in result["counts"].items():
+                totals[k] += v
+            ok = exit_code(result) == want["exit"]
+            ok = ok and all(got.get(k, 0) == v for k, v in want.get("counts", {}).items())
+            if "out" in want:
+                ok = ok and out == want["out"]
+            if "times" in want:
+                ok = ok and times_file(result) == want["times"]
+            for needle in want.get("contains", []):
+                ok = ok and any(needle in line for line in report(result))
+            expect(f"{label}: exit {exit_code(result)}", ok,
+                   "" if ok else f"{got} · out {out!r}")
+            if want.get("feed_checker"):
+                import your_words
+                path = os.path.join(tmp, label + "-typed.txt")
+                with open(path, "w", encoding="utf-8") as fh:
+                    fh.write(out)
+                page = os.path.join(TESTS, want["feed_checker"])
+                lines, counts, _, _, _, _ = your_words.check([page], path)
+                for line in lines:
+                    print(f"       {line}")
+                expect(f"{label}: its output fed to the checker reads exact",
+                       counts["exact"] >= 1 and counts["exact"] == sum(
+                           counts[k] for k in ("exact", "corrected", "absent", "cant_check")))
+    passed = bool(results) and all(results)
+    print(f"{sum(results)}/{len(results)} fixtures")
+    if not no_log:
+        path = runlog.write(TOOL, OWN_FILES, "planted", "selftest", "selftest", ["fixture"],
+                            [], totals, [], [])
+        print(f"logged: {os.path.relpath(path, root)} (planted)")
+    print("selftest: PASS" if passed else "selftest: FAIL")
+    return 0 if passed else 1
+
+
+def refusal_targets(targets, tmp, root):
+    """Each named way of pointing --out at a place it must refuse."""
+    out = []
+    for name in targets:
+        target = None
+        if name == "existing":
+            target = os.path.join(tmp, "existing.txt")
+            if not os.path.exists(target):
+                with open(target, "w", encoding="utf-8") as fh:
+                    fh.write("already here\n")
+        elif name == "inside":
+            target = os.path.join(root, "FIXTURE-extracted.txt")
+        elif name == "link":
+            link = os.path.join(tmp, "link-to-repository")
+            if not os.path.lexists(link):
+                os.symlink(root, link)
+            target = os.path.join(link, "FIXTURE-extracted.txt")
+        elif name == "case":
+            flipped = os.path.join(os.path.dirname(root), os.path.basename(root).swapcase())
+            target = os.path.join(flipped, "FIXTURE-extracted.txt")
+        elif name == "alias":
+            alias = "/System/Volumes/Data" + root
+            target = os.path.join(alias if os.path.isdir(alias) else root,
+                                  "FIXTURE-extracted.txt")
+        elif name == "no-folder":
+            target = os.path.join(tmp, "no-such-folder", "typed.txt")
+        out.append((name, target))
+    return out
+
+
+def main(argv):
+    ap = argparse.ArgumentParser(prog="extract.py", description=__doc__.split("\n\n")[0],
+                                 epilog="It cannot see what a person typed outside the"
+                                 " records it is given, nor a paste the harness did not tag.")
+    ap.add_argument("records", nargs="*", help="session records (.jsonl), in order")
+    ap.add_argument("--out", help="the words file to write (refused inside the repository)")
+    ap.add_argument("--times", help="one line per block: its time, record and line")
+    ap.add_argument("--planted", metavar="NOTE", help="log a planted row: what, by whom")
+    ap.add_argument("--no-log", action="store_true", help="write no row")
+    ap.add_argument("--selftest", action="store_true", help="run the synthetic fixtures")
+    args = ap.parse_args(argv)
+    if args.selftest:
+        try:
+            return selftest(args.no_log)
+        except Exception as exc:  # a crash is a failure, never a silent end
+            print(f"FAIL self-test crashed: {type(exc).__name__}: {exc}")
+            print("selftest: FAIL")
+            return 1
+    if not args.records or not args.out:
+        print("can't read: give one or more records and --out <file>")
+        return 2
+    if args.planted is not None and not args.planted.strip():
+        print("can't read: --planted needs a note saying what was planted and by whom")
+        return 2
+    return run(args.records, args.out, args.times, args.planted, args.no_log)
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
