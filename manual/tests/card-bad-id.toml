@@ -1,0 +1,9 @@
+id = "../FIXTURE-climbed-out"
+name = "Fixture card whose id leaves site/"
+status = "released"
+what = "A planted fault: an id that is a path."
+first = "true"
+gotcha = "Refused by the renderer."
+earned_by = "A card id of ../ wrote a page outside site/."
+files = []
+verified_against = ""

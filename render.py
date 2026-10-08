@@ -3,14 +3,18 @@
 
 How it is fired: by hand from the repository root (`python3 render.py`, in place, or
 `python3 render.py --out <dir>`); by check 3 (`checks/derived_readers.py`), which renders into a
-scratch folder and compares; by the test runner as `python3 render.py --selftest --no-log`.
+fresh scratch folder and compares; by the test runner as `python3 render.py --selftest --no-log`.
 The failure that earned it: a README and an agent's instructions kept by hand beside a manual
 fall behind it, quietly. Here the three are written from one set of records, and check 3 is red
 the moment any of them differs from what this writes.
 
 It never invents text: everything it writes is a record's field, a list derived from the
 records, or a card's "what it has caught" line from tools/runlog.py (imported, never copied).
-Standard library only, Python 3.11 or later. Exit 0 on success, 2 when it cannot render.
+The one exception is structure the spec names but gives no record: the card's field labels
+("What it is" and the rest, the intent's own words) and "in progress"; they live in this code.
+In place, site/ is wholly derived and is replaced; under `--out <dir>` it writes only the files
+it renders and deletes nothing. Standard library only, Python 3.11 or later.
+Exit 0 on success, 2 when it cannot render (the reason on standard error, one line).
 """
 import html
 import os
@@ -34,26 +38,30 @@ REQUIRED = {
 READERS = (('readme', 'README.md'), ('claude', 'CLAUDE.md'))
 OWNER_TOKEN = '{owner}'  # in a reader body, replaced by site.toml's owner
 TERMS_ROOM, TOOLS_ROOM, BUILD_ROOM = 'how-it-runs', 'tools', 'build'  # set by SPEC-corpus/SPEC-card
-# Card labels: the intent's own words for the card's fields.
+# Card labels: the intent's own words for the card's fields (structure, not record text).
 CARD_FIELDS = (('what', 'What it is'), ('first', 'The first thing to do'),
                ('gotcha', 'The one gotcha'), ('earned_by', 'The failure that earned it'))
 CAUGHT_LABEL = 'What it has caught'
 IN_PROGRESS = 'in progress'
+ID = re.compile(r'[a-z0-9-]+')  # an id becomes a file name and an HTML id: nothing else gets in
 
 
 class RenderError(Exception):
     """The corpus cannot be rendered as it stands; the message names the file."""
 
 
-def load(path, kind):
+def load(path, kind, base):
+    shown = os.path.relpath(path, base)
     try:
         with open(path, 'rb') as f:
             rec = tomllib.load(f)
     except (OSError, tomllib.TOMLDecodeError) as e:
-        raise RenderError(f'{path}: cannot read: {e}')
+        raise RenderError(f'{shown}: cannot read: {e}')
     missing = [k for k in REQUIRED[kind] if k not in rec]
     if missing:
-        raise RenderError(f'{path}: missing {", ".join(missing)}')
+        raise RenderError(f'{shown}: missing {", ".join(missing)}')
+    if kind in ('room', 'term', 'card') and not (isinstance(rec['id'], str) and ID.fullmatch(rec['id'])):
+        raise RenderError(f'{shown}: id {rec["id"]!r} is not lower-case letters, digits and hyphens')
     return rec
 
 
@@ -61,22 +69,26 @@ def load_dir(manual, sub, kind):
     folder = os.path.join(manual, sub)
     if not os.path.isdir(folder):
         return []
-    return [load(os.path.join(folder, n), kind)
+    base = os.path.dirname(manual)
+    return [load(os.path.join(folder, n), kind, base)
             for n in sorted(os.listdir(folder)) if n.endswith('.toml')]
 
 
 def load_corpus(manual):
+    base = os.path.dirname(manual)
     if not os.path.isfile(os.path.join(manual, 'site.toml')):
-        raise RenderError(f'{manual}: no site.toml')
-    site = load(os.path.join(manual, 'site.toml'), 'site')
+        raise RenderError(f'{os.path.relpath(manual, base)}: no site.toml')
+    site = load(os.path.join(manual, 'site.toml'), 'site', base)
+    if not isinstance(site['owner'], str) or not site['owner'].strip():
+        raise RenderError('manual/site.toml: owner is empty; the README signature needs a name')
     rooms = {r['id']: r for r in load_dir(manual, 'rooms', 'room')}
     for rid in site['rooms']:
         if rid not in rooms:
-            raise RenderError(f'site.toml: room {rid} has no record')
+            raise RenderError(f'manual/site.toml: room {rid} has no record')
     readers = {r['id']: r for r in load_dir(manual, 'readers', 'reader')}
     for rid, _ in READERS:
         if rid not in readers:
-            raise RenderError(f'readers/{rid}.toml: missing')
+            raise RenderError(f'manual/readers/{rid}.toml: missing')
     return {'site': site, 'rooms': rooms, 'readers': readers,
             'terms': load_dir(manual, 'terms', 'term'),
             'cards': load_dir(manual, 'tools', 'card')}
@@ -84,6 +96,7 @@ def load_corpus(manual):
 
 # ---- the markdown subset: paragraphs, [text](path), [text](#term:id), *emphasis*, `code`,
 # bulleted lists. Every body is escaped first; anything else comes through as written.
+# Emphasis applies to text and link text, never to a link's address or inside code.
 
 LINK = re.compile(r'\[([^\]\n]+)\]\(([^)\s]+)\)')
 EMPH = re.compile(r'(?<![*\w])\*([^*\s](?:[^*\n]*[^*\s])?)\*(?![*\w])')
@@ -95,17 +108,29 @@ def href(target, depth):
     return '../' * (depth + 1) + target  # paths are relative to the repository root
 
 
+def emph(text):
+    return EMPH.sub(r'<em>\1</em>', text)
+
+
 def inline(text, depth):
-    """Inline markup on already-escaped text; code spans are left untouched."""
+    """Inline markup on already-escaped text."""
     out = []
     for i, part in enumerate(re.split(r'(`[^`\n]+`)', text)):
         if i % 2:
             out.append(f'<code>{part[1:-1]}</code>')
             continue
-        part = LINK.sub(lambda m: f'<a href="{href(m.group(2), depth)}">'
-                        f'{m.group(1)}</a>', part)
-        out.append(EMPH.sub(r'<em>\1</em>', part))
+        at = 0
+        for m in LINK.finditer(part):
+            out.append(emph(part[at:m.start()]))
+            out.append(f'<a href="{href(m.group(2), depth)}">{emph(m.group(1))}</a>')
+            at = m.end()
+        out.append(emph(part[at:]))
     return ''.join(out)
+
+
+def inline_md(text, depth=0):
+    """One line of record text, escaped and marked up, with no paragraph around it."""
+    return inline(html.escape(text.strip(), quote=True), depth)
 
 
 def markdown(body, depth=0):
@@ -158,6 +183,8 @@ def card_page(site, card, caught):
                  else markdown(card[key], depth=1))
         parts.append(f'<h2>{label}</h2>\n{value}')
     line = caught(card['id'], card.get('catching'))
+    if not isinstance(line, str) or not line.strip():
+        raise RenderError(f'manual/tools/{card["id"]}.toml: runlog gave no caught line')
     parts.append(f'<h2>{CAUGHT_LABEL}</h2>\n<p>{html.escape(line)}</p>')
     return page(site, card['name'], '\n'.join(parts), depth=1)
 
@@ -167,11 +194,11 @@ def render_files(corpus, caught=None):
     site = dict(corpus['site'])
     rooms, cards = corpus['rooms'], corpus['cards']
     site['room_titles'] = [(rid, rooms[rid]['title']) for rid in site['rooms']]
-    released = [c for c in cards if c['status'] == 'released']
-    building = [c for c in cards if c['status'] == 'building']
     for c in cards:
         if c['status'] not in ('released', 'building'):
-            raise RenderError(f'tools/{c["id"]}.toml: status {c["status"]!r}')
+            raise RenderError(f'manual/tools/{c["id"]}.toml: status {c["status"]!r}')
+    released = [c for c in cards if c['status'] == 'released']
+    building = [c for c in cards if c['status'] == 'building']
     if released and caught is None:
         caught = runlog_caught_line()
     files = {'site/index.html': page(site, site['title'], '', depth=0)}
@@ -180,7 +207,7 @@ def render_files(corpus, caught=None):
         body = markdown(room['body'])
         if rid == TOOLS_ROOM and released:
             body += '\n<ul>' + ''.join(f'<li><a href="tools/{c["id"]}.html">{html.escape(c["name"])}'
-                                       f'</a>: {html.escape(c["what"])}</li>' for c in released) + '</ul>'
+                                       f'</a>: {inline_md(c["what"])}</li>' for c in released) + '</ul>'
         if rid == BUILD_ROOM and building:
             body += '\n<ul>' + ''.join(f'<li>{html.escape(c["name"])}: {IN_PROGRESS}</li>'
                                        for c in building) + '</ul>'
@@ -199,22 +226,22 @@ def reader_text(reader, owner, rid):
     """Markdown for README.md / CLAUDE.md: first section a `#` title, the rest `##` headings."""
     sections = reader['sections']
     if not sections:
-        raise RenderError(f'readers/{rid}.toml: no sections')
+        raise RenderError(f'manual/readers/{rid}.toml: no sections')
     if rid == 'readme' and not any(OWNER_TOKEN in s.get('body', '') for s in sections):
-        raise RenderError(f'readers/{rid}.toml: no {OWNER_TOKEN} signature line')
+        raise RenderError(f'manual/readers/{rid}.toml: no {OWNER_TOKEN} signature line')
     out = []
     for i, s in enumerate(sections):
         if 'heading' not in s or 'body' not in s:
-            raise RenderError(f'readers/{rid}.toml: section {i + 1} lacks heading or body')
+            raise RenderError(f'manual/readers/{rid}.toml: section {i + 1} lacks heading or body')
         mark = '#' if i == 0 else '##'
         body = s['body'].strip('\n').replace(OWNER_TOKEN, owner)
         out.append(f'{mark} {s["heading"]}\n\n{body}\n')
     return '\n'.join(out)
 
 
-def write(files, out):
-    """Writes the files under `out`; site/ is wholly derived, so it is replaced, not merged."""
-    if os.path.isdir(os.path.join(out, 'site')):
+def write(files, out, in_place):
+    """In place, site/ is wholly derived and is replaced. Under --out, writes only its files."""
+    if in_place and os.path.isdir(os.path.join(out, 'site')):
         shutil.rmtree(os.path.join(out, 'site'))
     for rel, text in files.items():
         path = os.path.join(out, rel)
@@ -223,23 +250,28 @@ def write(files, out):
             f.write(text)
 
 
-def render(manual, out, caught=None):
+def render(manual, out, caught=None, in_place=False):
     files = render_files(load_corpus(manual), caught)
-    write(files, out)
+    write(files, out, in_place)
     return files
 
 
 # ---- self-test: fixture text only; ends with `selftest: PASS` or `selftest: FAIL`.
+# Its fixtures are committed under manual/tests/.
+
+FIX = os.path.join(ROOT, 'manual', 'tests')
 
 
-def selftest():
-    results = []
+def refused(manual, out, stub):
+    try:
+        render(manual, out, stub)
+        return False
+    except RenderError:
+        return True
 
-    def case(name, ok):
-        results.append(ok)
-        print(f'{"PASS" if ok else "FAIL"} · {name}')
 
-    fixture = load(os.path.join(ROOT, 'manual', 'tests', 'markdown-fixture.toml'), 'room')
+def selftest_cases(case):
+    fixture = load(os.path.join(FIX, 'markdown-fixture.toml'), 'room', ROOT)
     got = markdown(fixture['body'])
     case('markdown: paragraph', got.count('<p>') == 2)
     case('markdown: path link', '<a href="../INTENT.md">path link</a>' in got)
@@ -251,22 +283,17 @@ def selftest():
     case('markdown: outside the subset comes through escaped',
          '&lt;b&gt;raw &amp; &quot;html&quot;&lt;/b&gt; &#x27;quoted&#x27;' in got and '<b>' not in got
          and '**strong**' in got and '# a heading' in got and '1. a number' in got)
+    plant = markdown(load(os.path.join(FIX, 'link-plant.toml'), 'room', ROOT)['body'])
+    case('markup never reaches a link address',
+         '<a href="../FIXTURE-*a*-b.md">link with <em>marked</em> text</a>' in plant)
 
     with tempfile.TemporaryDirectory() as tmp:
         manual = os.path.join(tmp, 'manual')
         shutil.copytree(os.path.join(ROOT, 'manual'), manual,
                         ignore=shutil.ignore_patterns('tests', 'tools'))
         os.makedirs(os.path.join(manual, 'tools'))
-        card = ('name = "Sample released"\nstatus = "released"\nwhat = "A *fixture* tool."\n'
-                'first = "python3 tools/sample/sample.py <file>"\ngotcha = "It reads `stdin` only."\n'
-                'earned_by = "A fixture failure."\nfiles = ["tools/sample/sample.py"]\n'
-                'catching = ["exact", "absent"]\nverified_against = ""\n')
-        with open(os.path.join(manual, 'tools', 'sample.toml'), 'w') as f:
-            f.write('id = "sample"\n' + card)
-        with open(os.path.join(manual, 'tools', 'sample-building.toml'), 'w') as f:
-            f.write('id = "sample-building"\nname = "Sample building"\nstatus = "building"\n'
-                    'what = "w"\nfirst = "f"\ngotcha = "g"\nearned_by = "e"\nfiles = []\n'
-                    'verified_against = ""\n')
+        for name in ('card-released', 'card-building'):
+            shutil.copy(os.path.join(FIX, f'{name}.toml'), os.path.join(manual, 'tools'))
         calls = []
 
         def stub(tool, catching=None):
@@ -285,31 +312,69 @@ def selftest():
              'That it mirrors that work is the owner' in fa['site/index.html'])
         case('README signature reads the owner from site.toml', 'Chad Wallace' in fa['README.md']
              and OWNER_TOKEN not in fa['README.md'])
-        page_ = fa.get('site/tools/sample.html', '')
+        page_ = fa.get('site/tools/card-released.html', '')
         case('released card renders every field', all(l in page_ for _, l in CARD_FIELDS)
              and '<em>fixture</em>' in page_ and '&lt;file&gt;' in page_ and CAUGHT_LABEL in page_)
+        case('a card\'s what is marked up in the tools room as on its page',
+             '<em>fixture</em> tool' in fa['site/tools.html'])
         case('caught line comes from runlog.caught_line with the card\'s catching',
-             calls and set(map(repr, calls)) == {repr(('sample', ['exact', 'absent']))} and 'no real run yet' in page_)
+             calls and set(map(repr, calls)) == {repr(('card-released', ['exact', 'absent']))}
+             and 'no real run yet' in page_)
         case('building card: absent from tools room, in progress in build room',
-             'Sample building' not in fa['site/tools.html']
-             and f'Sample building: {IN_PROGRESS}' in fa['site/build.html']
-             and 'site/tools/sample-building.html' not in fa)
-        with open(os.path.join(manual, 'readers', 'readme.toml'), encoding='utf-8') as f:
-            text = f.read()
-        with open(os.path.join(manual, 'readers', 'readme.toml'), 'w', encoding='utf-8') as f:
-            f.write(text.replace(OWNER_TOKEN, 'someone'))
-        try:
-            render(manual, os.path.join(tmp, 'c'), stub)
-            case('README without the owner signature is refused', False)
-        except RenderError:
-            case('README without the owner signature is refused', True)
-        os.remove(os.path.join(manual, 'site.toml'))
-        try:
-            render(manual, os.path.join(tmp, 'd'), stub)
-            case('a corpus with no site.toml is refused', False)
-        except RenderError:
-            case('a corpus with no site.toml is refused', True)
+             'Fixture building tool' not in fa['site/tools.html']
+             and f'Fixture building tool: {IN_PROGRESS}' in fa['site/build.html']
+             and 'site/tools/card-building.html' not in fa)
 
+        keep = os.path.join(tmp, 'keep')
+        os.makedirs(os.path.join(keep, 'site'))
+        with open(os.path.join(keep, 'site', 'kept.txt'), 'w') as f:
+            f.write('kept\n')
+        render(manual, keep, stub)
+        case('--out deletes nothing it did not write', os.path.isfile(os.path.join(keep, 'site', 'kept.txt')))
+
+        empty = lambda tool, catching=None: ''
+        case('an empty caught line is refused', refused(manual, os.path.join(tmp, 'e'), empty))
+
+        shutil.copy(os.path.join(FIX, 'card-bad-id.toml'), os.path.join(manual, 'tools'))
+        case('an id that is not lower-case letters, digits and hyphens is refused',
+             refused(manual, os.path.join(tmp, 'f'), stub)
+             and not os.path.exists(os.path.join(tmp, 'f', 'site', 'FIXTURE-climbed-out.html')))
+        os.remove(os.path.join(manual, 'tools', 'card-bad-id.toml'))
+
+        site_toml = os.path.join(manual, 'site.toml')
+        shutil.copy(site_toml, site_toml + '.kept')
+        shutil.copy(os.path.join(FIX, 'site-empty-owner.toml'), site_toml)
+        case('an empty owner is refused', refused(manual, os.path.join(tmp, 'g'), stub))
+        with open(site_toml, encoding='utf-8') as f:
+            text = f.read()
+        with open(site_toml, 'w', encoding='utf-8') as f:
+            f.write(text.replace('owner = ""', 'owner = "   "'))
+        case('an owner of white space is refused', refused(manual, os.path.join(tmp, 'h'), stub))
+        shutil.move(site_toml + '.kept', site_toml)
+
+        readme = os.path.join(manual, 'readers', 'readme.toml')
+        with open(readme, encoding='utf-8') as f:
+            text = f.read()
+        with open(readme, 'w', encoding='utf-8') as f:
+            f.write(text.replace(OWNER_TOKEN, 'someone'))
+        case('README without the owner signature is refused', refused(manual, os.path.join(tmp, 'c'), stub))
+        os.remove(site_toml)
+        case('a corpus with no site.toml is refused', refused(manual, os.path.join(tmp, 'd'), stub))
+
+
+def selftest():
+    results = []
+
+    def case(name, ok):
+        results.append(bool(ok))
+        print(f'{"PASS" if ok else "FAIL"} · {name}')
+
+    try:
+        selftest_cases(case)
+    except Exception as e:  # a corpus or fixture that cannot be read: can't tell, said, never silent
+        print(f'CAN\'T TELL · the self-test could not run its cases ({type(e).__name__}: {e})')
+        print('selftest: FAIL')
+        return 2
     ok = all(results)
     print(f'selftest: {"PASS" if ok else "FAIL"}')
     return 0 if ok else 1
@@ -319,18 +384,18 @@ def main(argv):
     args = [a for a in argv if a != '--no-log']  # accepted and ignored: the renderer writes no log
     if args == ['--selftest']:
         return selftest()
-    out = ROOT
+    out, in_place = ROOT, True
     if len(args) == 2 and args[0] == '--out':
-        out = os.path.abspath(args[1])
+        out, in_place = os.path.abspath(args[1]), False
     elif args:
         print('usage: render.py [--out DIR] [--selftest] [--no-log]', file=sys.stderr)
         return 2
     try:
-        files = render(os.path.join(ROOT, 'manual'), out)
+        files = render(os.path.join(ROOT, 'manual'), out, in_place=in_place)
     except RenderError as e:
         print(f'CAN\'T RENDER: {e}', file=sys.stderr)
         return 2
-    print(f'wrote {len(files)} files under {out}')
+    print(f'wrote {len(files)} files')
     return 0
 
 

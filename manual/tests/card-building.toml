@@ -1,0 +1,9 @@
+id = "card-building"
+name = "Fixture building tool"
+status = "building"
+what = "A fixture tool still being built."
+first = "python3 tools/card-building/card_building.py"
+gotcha = "It does nothing yet."
+earned_by = "A fixture failure, planted for the renderer's self-test."
+files = []
+verified_against = ""

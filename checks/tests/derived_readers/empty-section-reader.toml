@@ -1,0 +1,9 @@
+id = "claude"
+
+[[sections]]
+heading = "Fixture title"
+body = "Fixture text under the title."
+
+[[sections]]
+heading = "Fixture heading with no body"
+body = ""
