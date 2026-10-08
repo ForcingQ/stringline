@@ -1,0 +1,48 @@
+# The workflow: the guard's five checks, every self-test in the tree, and the quote checker.
+# How it is fired: by GitHub Actions on every push and every pull request. The same three
+# commands run by hand, from the repository root, give the same lines.
+# The failure that earned it: a correct check that nothing runs, the most repeated gap in the
+# owner's earlier work. So this file keeps no list of tests: checks/run_tests.py finds every
+# self-test in the tree, and adding one to the tree adds it to the run with no edit here.
+# It writes nothing back: the token can only read, the checkout keeps no credentials, and no
+# step merges, pushes, releases or commits. Every self-test and tool runs with --no-log.
+# Every step runs unless the run was cancelled, so a red step never hides the lines after it;
+# each step's exit code fails the job, so the job is red on any red and on any can't tell.
+# Pinned: actions/checkout at major v7, actions/setup-python at major v7, Python 3.11.
+name: checks
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out with full history (check 1 reads it; a shallow clone is can't tell)
+        if: ${{ !cancelled() }}
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Python 3.11
+        if: ${{ !cancelled() }}
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+
+      - name: The guard's five checks
+        if: ${{ !cancelled() }}
+        run: python3 checks/run_all.py
+
+      - name: Every self-test in the tree
+        if: ${{ !cancelled() }}
+        run: python3 checks/run_tests.py
+
+      - name: The quote checker, as a report
+        if: ${{ !cancelled() }}
+        run: python3 tools/your-words/your_words.py --no-log
