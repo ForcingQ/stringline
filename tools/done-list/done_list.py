@@ -15,6 +15,11 @@ holds, and a weak command passes weak work); that a YOURS stop was honoured
 (a stop line is the agent's own and can be forged; the log is the record);
 that the hook reaches a background seat (it acts on Stop only).
 
+Interrupts: each check runs in its own process group, so its timeout can end
+the whole group. A hook ended by SIGTERM or SIGINT ends the running check's
+group before it exits. SIGKILL cannot be caught; the check then ends at its
+own timeout, enforced by a small watchdog process started beside each check.
+
 Shape (SPEC-done-list.md): one block in a markdown file, between
 <!-- done-list root="..." cap=3 timeout=60 --> and <!-- /done-list -->, each
 non-blank line an item `n. **TAG** — <what is true> · <proof>`, a RESCOPE line,
@@ -33,6 +38,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import time
 
 sys.dont_write_bytecode = True
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -121,16 +127,20 @@ def _attrs(raw, lineno):
     cap, timeout = CAP_DEFAULT, TIMEOUT_DEFAULT
     if "cap" in found:
         v = found["cap"]
-        if not re.fullmatch(r"\d+", v) or int(v) < 1:
-            bad.append("cap is not a whole number of 1 or more")
+        if not re.fullmatch(r"\d+", v):
+            bad.append("cap is not a whole number")
+        elif int(v) < 1:
+            bad.append("cap is below 1")
         elif int(v) > CAP_MAX:
             notes.append(f"cap {v} read as {CAP_MAX}, the most allowed")
         else:
             cap = int(v)
     if "timeout" in found:
         v = found["timeout"]
-        if not re.fullmatch(r"\d+", v) or int(v) < 1:
+        if not re.fullmatch(r"\d+", v):
             bad.append("timeout is not a whole number of seconds")
+        elif int(v) < 1:
+            bad.append("timeout is below 1 second")
         else:
             timeout = int(v)
     for key in found:
@@ -264,9 +274,25 @@ class DoneList:
 
 # ---------------------------------------------------------------- running
 
+RUNNING = []  # the process group of the check now running, for the hook's interrupt
+WATCHDOG = ("import os,signal,sys,time\n"
+            "time.sleep(float(sys.argv[2]))\n"
+            "try: os.killpg(int(sys.argv[1]), signal.SIGKILL)\n"
+            "except OSError: pass\n")
+
+
+def _end_group(pgid):
+    try:
+        os.killpg(pgid, signal.SIGKILL)
+    except OSError:
+        pass
+
+
 def run_command(cmd, root, timeout):
     """('DONE'|'NOT DONE'|"CAN'T TELL", detail). The command runs through sh -c
-    from the root, in its own process group, stdin empty, output discarded."""
+    from the root, in its own process group, stdin empty, output discarded. A
+    watchdog in its own session ends the group at the timeout even if this
+    process is killed first; it is ended when the check returns."""
     if not os.path.isdir(root):
         return "CAN'T TELL", "the root folder does not exist"
     try:
@@ -275,21 +301,32 @@ def run_command(cmd, root, timeout):
                                 start_new_session=True)
     except OSError as exc:
         return "CAN'T TELL", f"could not start ({type(exc).__name__})"
+    RUNNING.append(proc.pid)
+    dog = None
+    try:
+        dog = subprocess.Popen([sys.executable, "-c", WATCHDOG, str(proc.pid), str(timeout + 1)],
+                               stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                               stderr=subprocess.DEVNULL, start_new_session=True)
+    except OSError:
+        pass  # without its watchdog the check still ends at the timeout below
     try:
         code = proc.wait(timeout=timeout)
     except subprocess.TimeoutExpired:
-        try:
-            os.killpg(proc.pid, signal.SIGKILL)
-        except OSError:
-            pass
+        _end_group(proc.pid)
         proc.wait()
         return "CAN'T TELL", f"timed out after {timeout}s; its process group ended"
+    finally:
+        RUNNING.remove(proc.pid)
+        if dog is not None:
+            dog.kill()
+            dog.wait()
+        _end_group(proc.pid)  # a child the command left behind in its group
     if code == 0:
         return "DONE", ""
     if code in (126, 127):
         return "CAN'T TELL", f"could not start (exit {code})"
     if code < 0:
-        return "CAN'T TELL", f"ended by signal {-code}"
+        return "NOT DONE", f"ended by signal {-code}"
     return "NOT DONE", f"exit {code}"
 
 
@@ -385,7 +422,11 @@ def cmd_check(args):
                  [f"not a list: {exc}"])
         return 2
     except OSError as exc:
-        print(f"CAN'T TELL: the list could not be opened ({type(exc).__name__})")
+        why = f"the list could not be opened ({type(exc).__name__})"
+        print(f"CAN'T TELL: {why}")
+        print(f"read: {args.list}")
+        _log_row(args, _rel(args.list), _rel(os.path.dirname(os.path.abspath(args.list))),
+                 {"done": 0, "not_done": 0, "cant_tell": 0, "malformed": 0}, [], [why])
         return 2
     out, counts, caught, could_not = evaluate(dl, args.before_work)
     for line in out:
@@ -453,7 +494,7 @@ def _text_parts(content):
 def last_message(data):
     """(the last assistant message's text or None, how it was found)."""
     msg = data.get("last_assistant_message")
-    if isinstance(msg, str):
+    if isinstance(msg, str) and msg.strip():
         return msg, "last_assistant_message"
     path = data.get("transcript_path")
     if not isinstance(path, str) or not path:
@@ -508,12 +549,12 @@ def stop_line(text):
 def _open_items(dl):
     """The open items: every POINTABLE not DONE and every malformed line."""
     out, _, _, _ = evaluate(dl)  # one printed line per item, in order
-    lines, nums = [], []
+    lines, nums, unnumbered = [], [], []
     for x, printed in zip(dl.items(), out):
         if x.tag == "MALFORMED" or (x.tag == "POINTABLE" and x.state != "DONE"):
             lines.append(printed)
-            nums.append(x.label)
-    return lines, nums
+            (nums if x.num is not None else unnumbered).append(x.num or x.label)
+    return lines, nums, unnumbered
 
 
 def _reason(open_lines, k, cap):
@@ -529,11 +570,22 @@ def _reason(open_lines, k, cap):
             " STOP: BLOCKED #n: <what blocks it>.")
 
 
+def _on_interrupt(signum, frame):
+    """SIGTERM or SIGINT: end the running check's group, then leave. The fired
+    line stays without its acted line, which report counts as killed."""
+    for pgid in list(RUNNING):
+        _end_group(pgid)
+    os._exit(0)
+
+
 def cmd_hook(args):
+    signal.signal(signal.SIGTERM, _on_interrupt)
+    signal.signal(signal.SIGINT, _on_interrupt)
     state = _state_dir(args)
     raw = sys.stdin.read()
     entry = {"time": _now(), "session_id": None, "event": None, "step": "fired",
-             "action": None, "open": [], "stop_hook_active": None, "note": ""}
+             "action": None, "open": [], "stop_hook_active": None, "note": "",
+             "planted": args.planted or ""}
     try:
         data = json.loads(raw)
         if not isinstance(data, dict):
@@ -592,11 +644,12 @@ def cmd_hook(args):
             acted("declared", note=note)
             return 0
         if dl is None:
-            open_lines, nums = [f"not a list: {not_list}"], ["list"]
+            open_lines, nums, unnumbered = [f"not a list: {not_list}"], [], ["not a list"]
             cap = CAP_DEFAULT
         else:
-            open_lines, nums = _open_items(dl)
+            open_lines, nums, unnumbered = _open_items(dl)
             cap = dl.cap
+        also = f"; also open: {', '.join(unnumbered)}" if unnumbered else ""
         if not open_lines:
             _set_blocks(state, session, 0)
             acted("done", note=f"every POINTABLE exits 0 ({how})")
@@ -604,14 +657,20 @@ def cmd_hook(args):
         k = _blocks(state, session) + 1
         if k > cap:
             _set_blocks(state, session, 0)
-            acted("cap", nums, note=f"cap {cap} reached; allowed with items open")
+            acted("cap", nums, note=f"cap {cap} reached; allowed with items open{also}")
             return 0
         _set_blocks(state, session, k)
-        acted("block", nums, note=f"continuation {k} of {cap} ({how})")
+        acted("block", nums, note=f"continuation {k} of {cap} ({how}){also}")
         print(json.dumps({"decision": "block", "reason": _reason(open_lines, k, cap)}))
         return 0
     except Exception as exc:  # fail-open: a hook that blocks on its own error traps the session
-        acted("error", note=f"the hook erred ({type(exc).__name__}: {exc})")
+        note = f"the hook erred ({type(exc).__name__}: {exc})"
+        try:
+            if entry["event"] == "Stop":  # every allow resets the count; only Stop touches it
+                _set_blocks(state, session, 0)
+        except OSError as again:
+            note += f"; the counter could not be reset ({type(again).__name__})"
+        acted("error", note=note)
         print(f"done-list hook: allowed on its own error ({type(exc).__name__}: {exc})",
               file=sys.stderr)
         return 0
@@ -658,7 +717,9 @@ def cmd_report(args):
             pending[key] = False
             actions[e.get("action")] = actions.get(e.get("action"), 0) + 1
     killed += sum(1 for v in pending.values() if v)
-    print(f"fires: {len(fires)} · killed: {killed} · continuations: {actions.get('block', 0)}"
+    planted = sum(1 for e in fires if e.get("planted"))
+    print(f"fires: {len(fires)} · of them planted: {planted} · killed: {killed}"
+          f" · continuations: {actions.get('block', 0)}"
           f" · cap hits: {actions.get('cap', 0)} · declared stops: {actions.get('declared', 0)}"
           f" · allowed on error: {actions.get('error', 0)}")
     print(f"other allows: done {actions.get('done', 0)} · not a Stop event"
@@ -668,8 +729,9 @@ def cmd_report(args):
     for e in entries:
         if e["step"] == "acted":
             opens = ",".join(str(o) for o in e.get("open") or []) or "-"
+            mark = " · planted" if e.get("planted") else ""
             print(f"{e.get('time')} · {e.get('event')} · {e.get('action')} · open {opens}"
-                  f" · stop_hook_active {e.get('stop_hook_active')} · {e.get('note')}")
+                  f" · stop_hook_active {e.get('stop_hook_active')}{mark} · {e.get('note')}")
     if killed:
         print("killed: a fired line with no acted line after it (the harness ended the"
               " hook, or a fire was still running when this report read the log)")
@@ -740,7 +802,8 @@ def _selftest(no_log):
                 except ValueError:
                     pass
                 lst = os.path.join(TESTS, case["list"])
-                code, out, err = run(["hook", "--list", lst, "--state", state], stdin)
+                code, out, err = run(["hook", "--list", lst, "--state", state, "--planted", "selftest"]
+                                     + case.get("argv_extra", []), stdin)
                 want = case["expect"][i]
                 if want == "block":
                     try:
@@ -762,7 +825,7 @@ def _selftest(no_log):
                     expect(f"{case['label']}: the error on standard error",
                            case["stderr_has"] in err)  # its text names a scratch path
             log = os.path.join(state, "log.jsonl")
-            if case.get("log_has") or case.get("counter"):
+            if os.path.isfile(log) or case.get("log_has"):  # a log a case expects must exist
                 try:
                     with open(log, encoding="utf-8") as fh:
                         lines = [json.loads(r) for r in fh if r.strip()]
@@ -773,6 +836,12 @@ def _selftest(no_log):
                 for word in case.get("log_has", []):
                     hit = any(word in json.dumps(e) for e in acted)
                     expect(f"{case['label']}: logged '{word}'", hit and len(fired) == len(acted))
+                if "log_open" in case:
+                    got = acted[-1].get("open") if acted else None
+                    expect(f"{case['label']}: the log's open holds item numbers {case['log_open']}",
+                           got == case["log_open"], str(got))
+                expect(f"{case['label']}: every line marked planted",
+                       bool(lines) and all(e.get("planted") == "selftest" for e in lines))
             if "counter" in case:
                 files = [f for f in os.listdir(state) if f != "log.jsonl"] if os.path.isdir(state) else []
                 if case["counter"] is None:
@@ -785,6 +854,76 @@ def _selftest(no_log):
                         k = "no readable counter file"
                     expect(f"{case['label']}: counter reads {case['counter']}", k == case["counter"],
                            str(k))
+        print("== a hook fire killed while its check runs")
+        kills = () if not shutil.which("pgrep") else (
+            (signal.SIGTERM, "killed-mid-check.md", "4712", 0.0),
+            (signal.SIGKILL, "killed-hard.md", "4713", 3.5))
+        if not kills:
+            print("can't tell whether a killed fire leaves a child: no pgrep here")
+        for sig, lst, num, wait in kills:
+            state = os.path.join(tmp, f"killed-{num}")
+            with open(os.path.join(TESTS, "h23-killed.json"), encoding="utf-8") as fh:
+                stdin = fh.read()
+            proc = subprocess.Popen([sys.executable, os.path.abspath(__file__), "hook", "--list",
+                                     os.path.join(TESTS, lst), "--state", state, "--planted",
+                                     "selftest"], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
+                                    stderr=subprocess.DEVNULL, cwd=TESTS, text=True)
+            proc.stdin.write(stdin)
+            proc.stdin.close()
+            seen = False
+            for _ in range(100):  # until the check's sleep is running, at most 10 s
+                if subprocess.run(["pgrep", "-f", f"sleep {num}"], capture_output=True).returncode == 0:
+                    seen = True
+                    break
+                time.sleep(0.1)
+            proc.send_signal(sig)
+            proc.wait()
+            time.sleep(wait + 0.3)
+            left = subprocess.run(["pgrep", "-f", f"sleep {num}"], capture_output=True).returncode
+            if left == 0:
+                subprocess.run(["pkill", "-f", f"sleep {num}"])
+            name = "SIGTERM" if sig == signal.SIGTERM else "SIGKILL"
+            after = "at once" if sig == signal.SIGTERM else "by its own timeout (the watchdog)"
+            print(f"   {name} to the hook mid-check ({lst}): child left: {'yes' if left == 0 else 'no'}")
+            expect(f"a fire killed with {name} leaves no child, {after}", seen and left == 1,
+                   "" if seen else "the check was never seen running")
+            code, out, _ = run(["report", "x.md", "--state", state])
+            expect(f"report counts the {name} fire as killed", "killed: 1" in out)
+
+        print("== run rows, in a scratch repository")
+        repo = os.path.join(tmp, "repo")
+        os.makedirs(os.path.join(repo, "tools", "done-list"))
+        subprocess.run(["git", "init", "-q", repo], check=True)
+        shutil.copy(os.path.abspath(__file__), os.path.join(repo, "tools", "done-list"))
+        shutil.copy(os.path.join(os.path.dirname(HERE), "runlog.py"), os.path.join(repo, "tools"))
+        shutil.copy(os.path.join(TESTS, "05-before-work.md"), os.path.join(repo, "list.md"))
+        shutil.copy(os.path.join(TESTS, "words-present.txt"), repo)
+        tool = os.path.join(repo, "tools", "done-list", "done_list.py")
+
+        def rows_now():
+            folder = os.path.join(repo, "runs")
+            names = sorted(os.listdir(folder)) if os.path.isdir(folder) else []
+            return [json.load(open(os.path.join(folder, n), encoding="utf-8")) for n in names]
+
+        for argv in (["--no-log", "check", "list.md"], ["check", "list.md", "--no-log"]):
+            subprocess.run([sys.executable, tool, *argv], cwd=repo, capture_output=True)
+            expect(f"--no-log honoured in either position: {' '.join(argv)} writes no row",
+                   rows_now() == [])
+        subprocess.run([sys.executable, tool, "check", "no-such-list.md", "--planted",
+                        "selftest: a list that cannot be opened"], cwd=repo, capture_output=True)
+        got = rows_now()
+        print(f"   check on a list that cannot be opened: rows {len(got)}, could_not "
+              f"{got[0]['could_not'] if got else '-'}")
+        expect("a list that cannot be opened still writes its row, naming it in could_not",
+               len(got) == 1 and any("could not be opened" in c for c in got[0]["could_not"]))
+        subprocess.run([sys.executable, tool, "check", "list.md", "--before-work"], cwd=repo,
+                       capture_output=True)
+        got = [r for r in rows_now() if r["kind"] == "real"]
+        print(f"   a person's real check: caught {got[0]['caught'] if got else '-'}")
+        expect("a person's check writes one real row, the pass before the work in caught",
+               len(got) == 1 and got[0]["caught"] == ["#1 passes before the work"]
+               and got[0]["read"] == ["list.md"] and got[0]["compared_against"] == ["."])
+
         print("== report: the hook's own log")
         code, out, _ = run(["report", os.path.join(TESTS, fx("open-items")), "--state",
                             os.path.join(tmp, "cap")])
@@ -792,6 +931,7 @@ def _selftest(no_log):
             print("   " + line)
         expect("report counts the cap run", code == 0 and "continuations: 4" in out
                and "cap hits: 1" in out and "killed: 0" in out)
+        expect("report counts planted fires apart", "fires: 5 · of them planted: 5" in out)
         killed = os.path.join(tmp, "killed")
         os.makedirs(killed)
         with open(os.path.join(killed, "log.jsonl"), "w", encoding="utf-8") as fh:
@@ -824,6 +964,39 @@ def _selftest(no_log):
 
 # ---------------------------------------------------------------- main
 
+def _hook_bad_args(argv):
+    """Arguments the hook could not read: allow, and log it where the state or
+    the list says, as every fail-open does; else standard error."""
+    def after(flag):
+        if flag in argv and argv.index(flag) + 1 < len(argv):
+            return argv[argv.index(flag) + 1]
+        return None
+    state = after("--state")
+    if not state and after("--list"):
+        state = os.path.join(os.path.dirname(os.path.abspath(after("--list"))), ".done-list")
+    try:
+        data = json.loads(sys.stdin.read())
+        data = data if isinstance(data, dict) else {}
+    except (ValueError, OSError):
+        data = {}
+    entry = {"time": _now(), "session_id": data.get("session_id"),
+             "event": data.get("hook_event_name"), "step": "fired", "action": None,
+             "open": [], "stop_hook_active": data.get("stop_hook_active"), "note": "",
+             "planted": after("--planted") or ""}
+    try:
+        if not state:
+            raise OSError("no --state or --list could be read")
+        _log(state, entry)
+        _log(state, dict(entry, time=_now(), step="acted", action="error",
+                         note="the hook's arguments could not be read"))
+    except OSError as exc:
+        print(f"done-list hook: allowed; its arguments could not be read, and its log"
+              f" could not be written ({type(exc).__name__})", file=sys.stderr)
+        return 0
+    print("done-list hook: allowed; its arguments could not be read", file=sys.stderr)
+    return 0
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(
         prog="done_list.py", description=__doc__.split("\n\n")[0],
@@ -840,21 +1013,22 @@ def main(argv=None):
     p.add_argument("--before-work", action="store_true",
                    help="a POINTABLE already DONE without [before-work ok] is a catch")
     p.add_argument("--planted", metavar="NOTE", help="log the run as planted, with this note")
-    p.add_argument("--no-log", action="store_true", help="write no row")
+    p.add_argument("--no-log", action="store_true", default=argparse.SUPPRESS,
+                   help="write no row (the same flag as before the subcommand)")
     p = sub.add_parser("hook", help="the Stop hook: reads the hook's JSON on standard input")
     p.add_argument("--list", required=True)
     p.add_argument("--state", help="the folder for the counter and log (default .done-list/ beside the list)")
+    p.add_argument("--planted", metavar="NOTE",
+                   help="mark this fire's log lines as planted (the self-test, a reviewer's fixture)")
     p = sub.add_parser("report", help="print the hook's own log")
     p.add_argument("list")
     p.add_argument("--state")
     argv = sys.argv[1:] if argv is None else argv
-    as_hook = bool(argv) and argv[0] == "hook"
     try:
         args = parser.parse_args(argv)
     except SystemExit as exc:
-        if as_hook and exc.code:  # exit 2 from a Stop hook would block: fail open
-            print("done-list hook: allowed; its arguments could not be read", file=sys.stderr)
-            return 0
+        if "hook" in argv and exc.code:  # exit 2 from a Stop hook would block: fail open
+            return _hook_bad_args(argv)
         raise
     if args.files:
         print("\n".join(FILES))

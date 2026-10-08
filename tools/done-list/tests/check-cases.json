@@ -156,12 +156,29 @@
   ]
  },
  {
-  "label": "a cap below 1 and a timeout not whole are malformed",
+  "label": "a cap below 1 and a timeout not whole are malformed, each with its reason",
   "list": "15-cap-zero.md",
   "exit": 1,
   "expect": [
-   "MALFORMED (cap is not a whole number",
+   "MALFORMED (cap is below 1)",
    "MALFORMED (timeout is not a whole number"
+  ]
+ },
+ {
+  "label": "a timeout of 0 is below 1, and a cap that is not a number is not whole",
+  "list": "16-zero-timeout.md",
+  "exit": 1,
+  "expect": [
+   "MALFORMED (timeout is below 1 second)",
+   "MALFORMED (cap is not a whole number)"
+  ]
+ },
+ {
+  "label": "a check ended by a signal is NOT DONE, naming the signal",
+  "list": "17-signal.md",
+  "exit": 1,
+  "expect": [
+   "#1 NOT DONE (ended by signal 9)"
   ]
  }
 ]

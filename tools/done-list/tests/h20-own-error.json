@@ -1,0 +1,6 @@
+{
+  "hook_event_name": "Stop",
+  "session_id": "fixture-session",
+  "stop_hook_active": true,
+  "transcript_path": "h20-own-error.jsonl"
+}

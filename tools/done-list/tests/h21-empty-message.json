@@ -1,0 +1,7 @@
+{
+  "hook_event_name": "Stop",
+  "session_id": "fixture-session",
+  "stop_hook_active": false,
+  "last_assistant_message": "",
+  "transcript_path": "h05-transcript.jsonl"
+}

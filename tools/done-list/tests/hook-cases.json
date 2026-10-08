@@ -45,7 +45,10 @@
    "STOP: YOURS #n",
    "STOP: BLOCKED #n"
   ],
-  "counter": 1
+  "counter": 1,
+  "log_open": [
+   3
+  ]
  },
  {
   "label": "cap: three blocks, then allow, then the counter starts again",
@@ -220,6 +223,9 @@
   "reason_has": [
    "line 5 MALFORMED (a bullet",
    "#1 MALFORMED (repeats item number 1)"
+  ],
+  "log_has": [
+   "also open: line 5"
   ]
  },
  {
@@ -305,6 +311,65 @@
   ],
   "log_has": [
    "the list could not be opened"
+  ]
+ },
+ {
+  "label": "own error: the allow resets the counter, so the next block is 1 of 3",
+  "state": "own-error",
+  "list": "open-items.md",
+  "inputs": [
+   "h03-open-items.json",
+   "h20-own-error.json",
+   "h03-open-items.json"
+  ],
+  "expect": [
+   "block",
+   "allow",
+   "block"
+  ],
+  "reason_has": [
+   [
+    "continuation 1 of 3"
+   ],
+   [],
+   [
+    "continuation 1 of 3"
+   ]
+  ],
+  "log_has": [
+   "the hook erred"
+  ],
+  "counter": 1
+ },
+ {
+  "label": "an empty last_assistant_message falls back to the transcript",
+  "state": "empty-message",
+  "list": "open-items.md",
+  "inputs": [
+   "h21-empty-message.json"
+  ],
+  "expect": [
+   "allow"
+  ],
+  "log_has": [
+   "(transcript)"
+  ]
+ },
+ {
+  "label": "allow, logged: arguments the hook cannot read",
+  "state": "bad-args",
+  "list": "open-items.md",
+  "argv_extra": [
+   "--no-such-flag"
+  ],
+  "inputs": [
+   "h22-bad-args.json"
+  ],
+  "expect": [
+   "allow"
+  ],
+  "log_has": [
+   "arguments could not be read"
   ]
  }
 ]
