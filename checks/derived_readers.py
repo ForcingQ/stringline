@@ -108,7 +108,10 @@ def copy_sources(root, dest):
     for rel in SOURCES:
         src = os.path.join(root, rel)
         if os.path.isdir(src):
-            shutil.copytree(src, os.path.join(dest, rel), ignore=shutil.ignore_patterns(SKIP))
+            # links are copied as links, so the renderer's own gate refuses them here as it
+            # would in the tree (copied as files, a link would read green in this check)
+            shutil.copytree(src, os.path.join(dest, rel), symlinks=True,
+                            ignore=shutil.ignore_patterns(SKIP))
         elif os.path.isfile(src):
             os.makedirs(os.path.dirname(os.path.join(dest, rel)) or dest, exist_ok=True)
             shutil.copy(src, os.path.join(dest, rel))

@@ -18,9 +18,10 @@ head as one style block (its {fonts} token replaced by the page's own way to sit
 every file in manual/look/fonts/ is copied to site/fonts/ byte for byte. Refused, one line, exit
 2: a style block that is missing, empty or holds a closing style tag; a font the block names
 that is not there; a font file with no LICENSE-<face>.txt beside it, or no NOTICE.txt (a face
-never ships bare); a link anywhere in the look (the folder, the style block, the fonts
-folder or a file in it: a link could publish a file from elsewhere on the machine); a folder
-that cannot be read. Dot-files and
+never ships bare); a folder that cannot be read. And one gate over every read: a symbolic link
+anywhere under manual/, the folder itself included, is refused, because a followed link could
+publish a file from elsewhere on the machine. Not seen by that gate: a hard link, which is a
+file like any other. Dot-files and
 sub-folders there are skipped. The front page lists the rooms: each room's title and the first
 block of its body, whole. The current room is marked in the nav with aria-current.
 In place, site/ is wholly derived and is replaced; under `--out <dir>` it writes only the files
@@ -103,8 +104,24 @@ def load_dir(manual, sub, kind):
             for n in sorted(os.listdir(folder)) if n.endswith('.toml')]
 
 
+def no_links(manual):
+    """One gate for every read: nothing under manual/ is reached through a link. A link could
+    bring a file from anywhere on the machine into pages, readers and font files that are
+    published. The folder itself, every folder under it and every file are looked at, and the
+    walk never follows a link."""
+    if os.path.islink(manual):
+        raise RenderError('manual: a link, not a folder')
+    for d, dirs, files in os.walk(manual, followlinks=False):
+        for name in sorted(dirs + files):
+            path = os.path.join(d, name)
+            if os.path.islink(path):
+                rel = os.path.relpath(path, manual).replace(os.sep, '/')
+                raise RenderError(f'manual/{rel}: a link, not a file or folder')
+
+
 def load_corpus(manual):
     base = os.path.dirname(manual)
+    no_links(manual)
     if not os.path.isfile(os.path.join(manual, 'site.toml')):
         raise RenderError(f'{os.path.relpath(manual, base)}: no site.toml')
     site = load(os.path.join(manual, 'site.toml'), 'site', base)
@@ -200,11 +217,7 @@ def load_look(manual):
     their licences. Returns (style text, {file name: bytes}). A missing or empty style block,
     or a font the block names that is not there, is a refusal, never a page with no look."""
     look = os.path.join(manual, 'look')
-    # nothing here is reached through a link: a link could bring a file from anywhere on the
-    # machine into pages and font files that are published
-    for rel in ('look', 'look/style.css', 'look/fonts'):
-        if os.path.islink(os.path.join(manual, *rel.split('/'))):
-            raise RenderError(f'manual/{rel}: a link, not a file or folder')
+    no_links(manual)  # load_corpus has looked already; this holds when the look is loaded alone
     try:
         with open(os.path.join(look, 'style.css'), encoding='utf-8') as f:
             style = f.read()
@@ -218,8 +231,6 @@ def load_look(manual):
     try:
         for name in sorted(os.listdir(folder)) if os.path.isdir(folder) else []:
             path = os.path.join(folder, name)
-            if os.path.islink(path):
-                raise RenderError(f'manual/look/fonts/{name}: a link, not a file')
             if name.startswith('.') or not os.path.isfile(path):
                 continue
             with open(path, 'rb') as f:
@@ -508,7 +519,19 @@ def selftest_cases(case):
                  'manual/look/fonts: a link'),
                 ('a link in the fonts folder',
                  lambda d: os.symlink('NOTICE.txt', os.path.join(d, 'look', 'fonts', 'FIXTURE-link.txt')),
-                 'FIXTURE-link.txt: a link, not a file'),
+                 'FIXTURE-link.txt: a link, not a file or folder'),
+                ('a room record that is a link',
+                 lambda d: (os.rename(os.path.join(d, 'rooms', 'build.toml'), os.path.join(d, 'kept.toml')),
+                            os.symlink(os.path.join('..', 'kept.toml'), os.path.join(d, 'rooms', 'build.toml'))),
+                 'manual/rooms/build.toml: a link'),
+                ('a records folder that is a link',
+                 lambda d: (os.rename(os.path.join(d, 'terms'), os.path.join(d, 'kept-terms')),
+                            os.symlink('kept-terms', os.path.join(d, 'terms'))),
+                 'manual/terms: a link'),
+                ('a link in a folder the renderer never reads',
+                 lambda d: (os.makedirs(os.path.join(d, 'FIXTURE-other')),
+                            os.symlink('nowhere', os.path.join(d, 'FIXTURE-other', 'FIXTURE-broken'))),
+                 'manual/FIXTURE-other/FIXTURE-broken: a link'),
                 ('a font the style block names that is not there',
                  lambda d: os.remove(os.path.join(d, 'look', 'fonts', sorted(
                      n for n in shipped if n.endswith('.ttf'))[0])), 'named by the style block and not there')):
