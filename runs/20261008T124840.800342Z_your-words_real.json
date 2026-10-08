@@ -1,0 +1,50 @@
+{
+  "tool": "your-words",
+  "started": "2026-10-08T12:48:40.800342Z",
+  "kind": "real",
+  "planted_by": "",
+  "invoked_by": "person",
+  "read": [
+    "BUILD-LOG-2026-10-07-s1-the-founding.md",
+    "BUILD-LOG-2026-10-07-s2-see-and-name.md",
+    "BUILD-LOG-2026-10-07-s3-map-order-spec.md",
+    "BUILD-LOG-2026-10-07-s3b-spec-the-placed-items.md",
+    "BUILD-LOG-2026-10-07-s4-the-build.md",
+    "BUILD-LOG.md",
+    "CLAUDE.md",
+    "DECISIONS-2026-10-07-s1-to-s3b.md",
+    "DECISIONS-2026-10-08-s4.md",
+    "DECISIONS.md",
+    "INTENT.md",
+    "LEARNED.md",
+    "MAP.md",
+    "OPEN-PROTOCOL.md",
+    "README.md",
+    "SPEC-card.md",
+    "SPEC-corpus.md",
+    "SPEC-done-list.md",
+    "SPEC-extractor.md",
+    "SPEC-guard.md",
+    "SPEC-push-scanner.md",
+    "SPEC-run-log.md",
+    "SPEC-workflow.md",
+    "SPEC-your-words.md",
+    "SPEC.md"
+  ],
+  "compared_against": [
+    "outside the repository"
+  ],
+  "outcomes": {
+    "exact": 5,
+    "corrected": 3,
+    "absent": 2,
+    "cant_check": 0,
+    "spoken": 0
+  },
+  "caught": [
+    "absent · INTENT.md:25 · I do not try and claim… · an … skips a negation, or the parts are out of order",
+    "absent · INTENT.md:41 · We build things right, not fast.… · an … skips a negation, or the parts are out of order"
+  ],
+  "could_not": [],
+  "tool_version": "4c662e77cbf453ef3b255b69e2571d6a7326e682"
+}

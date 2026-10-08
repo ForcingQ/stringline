@@ -1,0 +1,25 @@
+{
+  "tool": "your-words",
+  "started": "2026-10-08T12:48:24.773059Z",
+  "kind": "real",
+  "planted_by": "",
+  "invoked_by": "person",
+  "read": [
+    "outside the repository"
+  ],
+  "compared_against": [],
+  "outcomes": {
+    "messages": 44,
+    "later": 30,
+    "nothing_typed": 687,
+    "harness_skipped": 40,
+    "events_skipped": 3656,
+    "parts_skipped": 667,
+    "edge_blank_dropped": 1,
+    "inner_blank_kept": 16,
+    "cant_read": 0
+  },
+  "caught": [],
+  "could_not": [],
+  "tool_version": "4c662e77cbf453ef3b255b69e2571d6a7326e682"
+}
