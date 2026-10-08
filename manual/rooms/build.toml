@@ -1,7 +1,7 @@
 id = "build"
 title = "The build"
 body = '''
-The record of how this is built, session by session:
+The record of how this is built, session by session.
 
 - [BUILD-LOG.md](BUILD-LOG.md): what each session did, decided and got wrong, dated.
 - [DECISIONS.md](DECISIONS.md): each decision and its reason.
