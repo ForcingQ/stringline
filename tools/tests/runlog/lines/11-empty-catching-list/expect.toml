@@ -1,0 +1,3 @@
+# an empty catching list is read as none given: every real run checks
+catching = []
+line = "1 real run, nothing caught yet"

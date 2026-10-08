@@ -1,0 +1,21 @@
+{
+  "tool": "fixture-tool",
+  "started": "20261005T000000Z",
+  "kind": "real",
+  "planted_by": "",
+  "invoked_by": "person",
+  "read": [
+    "a.md"
+  ],
+  "compared_against": [
+    "b.txt"
+  ],
+  "outcomes": {
+    "exact": 1
+  },
+  "caught": [
+    "a catch dated in the basic form"
+  ],
+  "could_not": [],
+  "tool_version": "uncommitted"
+}

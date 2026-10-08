@@ -1,0 +1,3 @@
+# file names and started times disagree: started wins
+order = ["20261004", "20261005", "20261003", "20261002"]
+line = "2026-10-05 quote absent: page:3; 2026-10-04 quote absent: page:9 · 1 run could not see everything"

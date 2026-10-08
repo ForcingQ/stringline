@@ -1,0 +1,2 @@
+catching = ["exact", "corrected", "absent", "cant_check"]
+line = "no checking run yet · 1 other run"
