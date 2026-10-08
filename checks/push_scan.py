@@ -38,7 +38,9 @@ text's edge on both sides (a word character is a letter or digit after folding);
 comments; an empty list is CAN'T TELL.
 Read as text: a file with a text extension is decoded as UTF-8, and also as UTF-16 in both byte
 orders when it carries a mark or NUL bytes, every successful reading scanned; one that decodes
-no way is CAN'T TELL. Any other file: UTF-16 when it carries a mark, else UTF-8 with replacement
+no way is read as UTF-8 with replacement and as Latin-1, both scanned, and counted in the line as
+read with replacement, never CAN'T TELL (a word spelled in letters neither reading recovers is not
+seen). Any other file: UTF-16 when it carries a mark, else UTF-8 with replacement
 when its first 8,000 bytes hold no NUL (git's own rule), else counted by name as binary. A blob
 is read once per way of reading it (the text-extension rule, the no-extension rule), whatever
 names it sits under; a bare blob a ref names has no name and is read by the no-extension rule.
@@ -109,7 +111,7 @@ def load_list(path):
 
 
 def readings(name, data):
-    """Return (texts, kind): kind is 'text', 'binary' or 'undecodable'."""
+    """Return (texts, kind): kind is 'text', 'replaced', 'binary' or 'undecodable'."""
     ext = os.path.splitext(name)[1].lower()
     marked = data[:2] in MARKS
     if ext in TEXT_EXT:
@@ -125,7 +127,11 @@ def readings(name, data):
                     texts.append(body.decode(enc))
                 except UnicodeDecodeError:
                     pass
-        return (texts, "text") if texts else ([], "undecodable")
+        if texts:
+            return texts, "text"
+        # decodes no way: read as UTF-8 with replacement and as Latin-1, both scanned (the owner's
+        # ruling of 8 October), counted in the line, never can't tell
+        return [data.decode("utf-8", errors="replace"), data.decode("latin-1")], "replaced"
     if marked:
         try:
             return [data.decode("utf-16")], "text"
@@ -149,7 +155,7 @@ class Scan:
         self.hits = []
         self.seen = set()
         self.cant = []
-        self.text = self.binary = self.submodules = 0
+        self.text = self.binary = self.submodules = self.replaced = 0
         self.skipped = set()
 
     def hit(self, where, line, label):
@@ -179,6 +185,7 @@ class Scan:
             self.cant.append(f"{where} decodes no way")
         else:
             self.text += 1
+            self.replaced += kind == "replaced"
             for t in texts:
                 self.scan_text(t, where)
 
@@ -388,11 +395,13 @@ def mode_tree(list_path, list_name):
             return 1
         print(f"CAN'T TELL: {e}")
         return 2
-    read = (f"read {scan.text} files, {scan.binary} binary counted, {commits} commit"
+    read = (f"read {scan.text} files, {scan.binary} binary counted, {scan.replaced} read with replacement, {commits} commit"
             + (f", {scan.submodules} submodules counted" if scan.submodules else ""))
     if scan.hits:
         w, n, t = scan.hits[0]
         tail = f"; could not read {len(scan.cant)}: {scan.cant[0]}" if scan.cant else ""
+        if scan.replaced:
+            tail += f"; {scan.replaced} read with replacement"
         print(f"RED: {len(scan.hits)} hit(s), first {w}:{n}: [{t}]{tail}")
         return 1
     if scan.text == 0:
@@ -435,7 +444,8 @@ def mode_files(paths, terms, list_name):
             scan.cant.append(f"{p}: {e.strerror or e.__class__.__name__}")
             continue
         scan.scan_bytes(p, data, p)
-    read = f"read {scan.text} files as text, {scan.binary} binary counted"
+    read = (f"read {scan.text} files as text, {scan.binary} binary counted, {scan.replaced} read with"
+            f" replacement")
     return report(scan, read, list_name)
 
 
@@ -443,7 +453,8 @@ def mode_stdin(terms, list_name):
     scan = Scan(terms)
     data = sys.stdin.buffer.read()
     scan.scan_bytes("stdin.txt", data, "stdin")
-    return report(scan, f"read {len(data)} bytes from standard input", list_name)
+    return report(scan, f"read {len(data)} bytes from standard input, {scan.replaced} read with"
+                        f" replacement", list_name)
 
 
 def mode_history(repo, terms, list_name):
@@ -465,6 +476,7 @@ def mode_history(repo, terms, list_name):
     except CannotLook as e:
         return report(scan, f"read {commits} commits before stopping", list_name, str(e))
     read = (f"read {commits} commits, {scan.text} files, {scan.binary} binary counted,"
+            f" {scan.replaced} read with replacement,"
             f" {state['tags']} tags, {state['other']} other objects · {skipped_text(scan)}")
     if not revs:
         return report(scan, read, list_name, "no commit is reachable from any ref")
@@ -513,6 +525,7 @@ def mode_prepush(terms, list_name):
     if commits == 0 and not state["objects"] and deletions:
         return report(scan, f"{deletions} deletion(s) counted, nothing pushed to scan", list_name)
     read = (f"read {commits} commits, {scan.text} files, {scan.binary} binary counted,"
+            f" {scan.replaced} read with replacement,"
             f" {state['tags']} tags, {state['other']} other objects, {deletions} deletions counted"
             f" · {skipped_text(scan)}")
     return report(scan, read, list_name)
@@ -699,9 +712,19 @@ def selftest():
         os.makedirs(links)
         os.symlink(fixture("case-link-target.txt"), os.path.join(links, "link"))
         expect("other", "a link whose target names a word", ["--files", "link"], 1, links)
-        expect("other", "case-undecodable.txt alone", ["--files", "case-undecodable.txt"], 2, FIX)
-        expect("other", "a hit beside case-undecodable.txt", ["--files", "plant-01-tip.txt",
-               "case-undecodable.txt"], 1, FIX, grep="could not read")
+        expect("other", "case-undecodable.txt alone (read with replacement, counted)",
+               ["--files", "case-undecodable.txt"], 0, FIX, grep="1 read with replacement")
+        expect("other", "case-latin1.txt (a word only the Latin-1 reading recovers) --files",
+               ["--files", "case-latin1.txt"], 1, FIX, grep="1 read with replacement")
+        expect("other", "a hit beside an unreadable file (one that is not there)",
+               ["--files", "plant-01-tip.txt", "no-such-file.txt"], 1, FIX, grep="could not read")
+        repo = new_repo(base, "latin1.repo")
+        tip = commit_file(repo, "notes.txt", fixture("case-latin1.txt", binary=True), "Old notes")
+        expect("other", "case-latin1.txt --tree", ["--tree"], 1, repo, grep="1 read with replacement")
+        expect("other", "case-latin1.txt --prepush", ["--prepush"], 1, repo, new_ref(tip),
+               grep="1 read with replacement")
+        expect("other", "case-latin1.txt --history", ["--history", "."], 1, repo,
+               grep="1 read with replacement")
 
         print("-- pushed objects that are not commits: each read, never skipped")
 
@@ -832,6 +855,12 @@ def selftest():
         same_refused = p4.returncode != 0 and subprocess.run(
             ["git", "rev-parse", "--verify", "-q", "refs/heads/same-bytes"], cwd=remote,
             env=scratch_env(), capture_output=True).returncode != 0
+        commit_file(clone, "latin1-notes.txt", fixture("case-latin1.txt", binary=True), "Old notes")
+        p5 = subprocess.run(["git", "push", "-q", "origin", "HEAD:refs/heads/latin1"], cwd=clone,
+                            env=scratch_env(), capture_output=True)
+        latin_refused = p5.returncode != 0 and subprocess.run(
+            ["git", "rev-parse", "--verify", "-q", "refs/heads/latin1"], cwd=remote,
+            env=scratch_env(), capture_output=True).returncode != 0
         object_refused = []
         for label, make in object_cases:
             ref, oid = make(clone)
@@ -843,11 +872,12 @@ def selftest():
         remote_tip = sg(remote, "rev-parse", "main")
         clean_ok = p1.returncode == 0
         refused = p2.returncode != 0 and remote_tip != sg(clone, "rev-parse", "HEAD")
-        results["other"] += [clean_ok, refused, same_refused] + object_refused
+        results["other"] += [clean_ok, refused, same_refused, latin_refused] + object_refused
         print(f"{'ok  ' if clean_ok else 'FAIL'} · hook: a clean push goes through")
         print(f"{'ok  ' if refused else 'FAIL'} · hook: a push carrying a sample word is refused")
         print(f"{'ok  ' if same_refused else 'FAIL'} · hook: a push of case-same-bytes.dat at"
               " FIXTURE-a.dat and FIXTURE-b.md is refused")
+        print(f"{'ok  ' if latin_refused else 'FAIL'} · hook: a push of case-latin1.txt is refused")
         for (label, _), ok in zip(object_cases, object_refused):
             print(f"{'ok  ' if ok else 'FAIL'} · hook: a push of {label} is refused")
     finally:
