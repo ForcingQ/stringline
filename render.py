@@ -296,10 +296,11 @@ def runlog_caught_line():
     try:
         spec = importlib.util.spec_from_file_location('runlog', module)
         runlog = importlib.util.module_from_spec(spec)
-        sys.modules['runlog'] = runlog  # the tools import it by this name
         spec.loader.exec_module(runlog)
-    except (OSError, ImportError, SyntaxError, AttributeError) as e:
-        sys.modules.pop('runlog', None)
+        if not callable(getattr(runlog, 'caught_line', None)):
+            raise AttributeError('no caught_line')
+    except (Exception, SystemExit) as e:
+        # whatever a module does as it loads, raising anything or asking to exit, is one line
         raise RenderError(f'tools/runlog.py: cannot import ({type(e).__name__}); a released card needs it')
     return lambda tool, catching=None: runlog.caught_line(tool, catching, folder=runs)
 
@@ -650,6 +651,25 @@ def selftest_cases(case):
                 sys.modules['runlog'] = saved_module
         case('the log is read from the folder the gate walked, by the module the gate looked at',
              said == 'FIXTURE read ' + os.path.join(same_root, 'runs'))
+        for label, text in (('an empty file', ''), ('one that raises as it loads', 'raise ValueError("FIXTURE")\n'),
+                            ('one that divides by zero', 'x = 1 / 0\n'),
+                            ('one that asks to exit', 'import sys\nsys.exit(0)\n'),
+                            ('one that is not Python', 'def (\n'),
+                            ('one whose caught_line is not a function', 'caught_line = "FIXTURE"\n')):
+            with open(os.path.join(same_root, 'tools', 'runlog.py'), 'w', encoding='utf-8') as f:
+                f.write(text)
+            globals()['ROOT'] = same_root
+            try:
+                runlog_caught_line()
+                got = 'loaded'
+            except RenderError as e:
+                got = str(e)
+            except BaseException as e:  # anything else is the fault this case guards
+                got = f'escaped: {type(e).__name__}'
+            finally:
+                globals()['ROOT'] = real_root
+            case(f'a log module that will not load is one line: {label}',
+                 got.startswith('tools/runlog.py: cannot import') and tmp not in got)
 
         keep = os.path.join(tmp, 'keep')
         os.makedirs(os.path.join(keep, 'site'))
