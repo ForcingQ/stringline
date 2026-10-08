@@ -20,8 +20,10 @@ a missing manual/ folder is CAN'T TELL (a branch building the checks before the 
 What it does not prove: that a link points at the right place, that a card's words match its
 tool, or that every use of a term is linked. Links with a scheme (https:, mailto:) are counted,
 not followed; a link to a folder (a trailing slash included), a tracked symbolic link or a
-submodule entry, or one whose target holds a space or a title, is RED. Two records of one kind
-sharing an id are RED, naming both; a room not listed in site.toml's rooms is RED. The only
+submodule entry, or one whose target holds a space or a title, is RED; a path ending in /. or /..
+names a folder too. Two records of one kind sharing an id are RED, naming both. Rooms and
+site.toml's rooms match both ways (a room not listed, a listed id with no record, each RED); a
+missing site.toml, or rooms that is not a list of ids, is RED, never the rule switched off. The only
 records left unread are the files directly under manual/tests/ (fixtures), counted in the line.
 A released card whose main file is not tracked is RED: its copies are never silently uncompared.
 A tool that crashes or warns when asked for its copies is CAN'T TELL; so is any git error.
@@ -121,8 +123,8 @@ def run(root):
 
     def resolves(target):
         target = target.split("#", 1)[0].split("?", 1)[0]
-        if not target or target.endswith("/"):
-            return False  # a trailing slash names a folder
+        if not target or target.split("/")[-1] in ("", ".", ".."):
+            return False  # a trailing slash, /. or /.. names a folder, as a browser reads it
         norm = posixpath.normpath(target)
         # a tracked regular file only: never a folder, a symbolic link or a submodule entry
         return not norm.startswith("..") and tracked.get(norm) in ("100644", "100755")
@@ -135,14 +137,27 @@ def run(root):
     for (kind, rid), paths in sorted(by_id.items()):
         if len(paths) > 1:
             reds.append(f"{' and '.join(sorted(paths))}: {len(paths)} records share the id {rid}")
-    site = records.get("manual/site.toml", {})
-    listed = site.get("rooms") if isinstance(site.get("rooms"), list) else None
-    for path in sorted(records):
-        stem = path.split("/")[-1][:-5]
-        if path.startswith("manual/rooms/") and path.count("/") == 2 and listed is not None \
-                and stem not in listed:
-            reds.append(f"{path}: room {stem} is not listed in manual/site.toml's rooms, so it"
-                        f" gets no page")
+    # rooms and the site's list, both ways; the rule is never switched off
+    rooms = {p.split("/")[-1][:-5]: p for p in records
+             if p.startswith("manual/rooms/") and p.count("/") == 2}
+    listed = None
+    if "manual/site.toml" not in tracked:
+        reds.append("manual/site.toml: missing, so no room can be checked against the site's list")
+    elif "manual/site.toml" in records:
+        value = records["manual/site.toml"].get("rooms")
+        if isinstance(value, list) and all(isinstance(r, str) for r in value):
+            listed = value
+        elif "rooms" in records["manual/site.toml"]:
+            reds.append("manual/site.toml: rooms is not a list of room ids")
+    if listed is not None:
+        for stem, path in sorted(rooms.items()):
+            if stem not in listed:
+                reds.append(f"{path}: room {stem} is not listed in manual/site.toml's rooms, so it"
+                            f" gets no page")
+        for rid in listed:
+            if rid not in rooms:
+                reds.append(f"manual/site.toml: room {rid} is listed and has no record"
+                            f" manual/rooms/{rid}.toml")
 
     for path, rec in records.items():
         parts = path.split("/")
@@ -318,6 +333,11 @@ def selftest():
         "plant-link-to-submodule": "link vendored resolves to no tracked file",
         "plant-duplicate-id": "manual/tools/demo-copy.toml and manual/tools/demo.toml: 2 records share the id demo",
         "plant-room-unlisted": "manual/rooms/extra.toml: room extra is not listed",
+        "plant-room-no-record": "room ghost is listed and has no record manual/rooms/ghost.toml",
+        "plant-rooms-not-list": "manual/site.toml: rooms is not a list of room ids",
+        "plant-site-missing": "manual/site.toml: missing",
+        "plant-link-dot": "link INTENT.md/. resolves to no tracked file",
+        "plant-link-dotdot": "link INTENT.md/x/.. resolves to no tracked file",
     }
     cases = [("control-corpus", 0)]
     for name in sorted(os.listdir(fix)):
