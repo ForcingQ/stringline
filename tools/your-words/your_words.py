@@ -318,7 +318,10 @@ def part_spans(qt, mt):
     return out
 
 
-def corrected_place(text, parts, lead, trail):
+def corrected_place(text, parts, lead, trail, neg=True, ordered=True):
+    """The place where a quote reads corrected, or None. The two switches never
+    decide an outcome: diagnose turns one rule off at a time to learn which rule
+    alone kept an absent quote from reading corrected."""
     mt = tokens(text)
     qts = [tokens(p) for p in parts]
     if any(not q for q in qts):
@@ -336,7 +339,9 @@ def corrected_place(text, parts, lead, trail):
         if best and cost > best[0]:
             return
         if idx == len(parts):
-            if trail and neg_in(chosen[-1][1], len(mt)):
+            if neg and trail and neg_in(chosen[-1][1], len(mt)):
+                return
+            if not ordered and [c[0] for c in chosen] == sorted(c[0] for c in chosen):
                 return
             key = (cost, [c[0] for c in chosen])
             if best is None or key < (best[0], [c[0] for c in best[1]]):
@@ -344,11 +349,16 @@ def corrected_place(text, parts, lead, trail):
             return
         for c in cands[idx]:
             s, e, ccost, cd, _ = c
-            if s < pos or cost + ccost > budget or drops + cd > 2:
+            if cost + ccost > budget or drops + cd > 2:
                 continue
-            if idx == 0 and lead and neg_in(0, s):
-                continue
-            if idx > 0 and neg_in(pos, s):
+            if ordered:
+                if s < pos:
+                    continue
+                if neg and idx == 0 and lead and neg_in(0, s):
+                    continue
+                if neg and idx > 0 and neg_in(pos, s):
+                    continue
+            elif any(s < pe and ps < e for ps, pe, *_ in chosen):
                 continue
             go(idx + 1, e, cost + ccost, drops + cd, chosen + [c])
     go(0, 0, 0, 0, [])
@@ -410,53 +420,36 @@ def context(text, start, end):
     return (" ".join(before) or "[start]"), (" ".join(after) or "[end]")
 
 
-def _splice_reason(text, parts, lead, trail):
-    """When every part of a quote is found in one message, say which of two
-    things kept it from reading corrected: the parts stand in another order, or
-    an … covers a negation (and where, as a count of typed words, never a word).
-    None when a part is not found, or when neither is the reason."""
-    mt = tokens(text)
-    qts = [tokens(p) for p in parts]
-    if not mt or any(not q for q in qts):
-        return None
-    budget = math.ceil(sum(len(q) for q in qts) / 8)
-    cands = [sorted({(c[0], c[1]) for c in part_spans(q, mt) if c[2] <= budget})
-             for q in qts]
-    if any(not c for c in cands):
-        return None
-    chains, steps = [], [0]
-
-    def go(idx, pos, chosen):
-        steps[0] += 1
-        if steps[0] > 5000 or len(chains) >= 200:
-            return
-        if idx == len(cands):
-            chains.append(chosen)
-            return
-        for s, e in cands[idx]:
-            if s >= pos:
-                go(idx + 1, e, chosen + [(s, e)])
-
-    go(0, 0, [])
-    if not chains:
-        return "the parts are out of order" if len(parts) > 1 else None
-
-    def first_neg(a, b):
-        return next((k - a + 1 for k in range(a, b) if is_negation(mt[k].raw)), None)
-
-    for chosen in chains:
-        for i in range(len(chosen) - 1):
-            if first_neg(chosen[i][1], chosen[i + 1][0]):
-                return f"an … skips a negation, between parts {i + 1} and {i + 2}"
+def _splice_reason(messages, parts, lead, trail):
+    """Which single rule kept an absent quote from reading corrected, learned by
+    turning that one rule off in the same search that decides the outcome, so a
+    reason is given only when it is the cause. First, in any message: with the
+    negation rule off the quote places, so an … covers a negation (where, as a
+    count of typed words, never the word). Else: with the order rule off it
+    places, in an order that is not the quote's. Else None."""
+    for n, text in enumerate(messages, 1):
+        got = corrected_place(text, parts, lead, trail, neg=False)
+        if not got:
+            continue
+        mt, _, chosen = got
+        spots = [(chosen[i][1], chosen[i + 1][0], i) for i in range(len(chosen) - 1)]
+        for a, b, i in spots:
+            if any(is_negation(t.raw) for t in mt[a:b]):
+                return n, f"an … skips a negation, between parts {i + 1} and {i + 2}"
         if trail:
-            k = first_neg(chosen[-1][1], len(mt))
+            a = chosen[-1][1]
+            k = next((j - a + 1 for j in range(a, len(mt)) if is_negation(mt[j].raw)), None)
             if k:
-                return f"an … skips a negation, {k} typed words past the quote's end"
+                return n, f"an … skips a negation, {k} typed words past the quote's end"
         if lead:
             a = chosen[0][0]
-            back = next((a - k for k in range(a - 1, -1, -1) if is_negation(mt[k].raw)), None)
-            if back:
-                return f"an … skips a negation, {back} typed words before the quote's start"
+            k = next((a - j for j in range(a - 1, -1, -1) if is_negation(mt[j].raw)), None)
+            if k:
+                return n, f"an … skips a negation, {k} typed words before the quote's start"
+    if len(parts) > 1:
+        for n, text in enumerate(messages, 1):
+            if corrected_place(text, parts, lead, trail, neg=False, ordered=False):
+                return n, "the parts are out of order"
     return None
 
 
@@ -503,10 +496,9 @@ def diagnose(messages, parts, lead=False, trail=False):
     same = sum(1 for o, i, j in ops if o == "sub" and qt[i].f == mt[j].f)
     if same == 0:
         return None, "no message holds its words"
-    for k, text in enumerate(messages, 1):  # the parts' own places outrank the loose alignment
-        why = _splice_reason(text, parts, lead, trail)
-        if why:
-            return k, why
+    found = _splice_reason(messages, parts, lead, trail)  # the cause, when one rule alone is it
+    if found:
+        return found
     for o, i, j in ops:
         if o == "sub" and qt[i].f != mt[j].f and (is_negation(qt[i].raw) or
                                                   is_negation(mt[j].raw)):
