@@ -318,7 +318,8 @@ def part_spans(qt, mt):
     return out
 
 
-UNORDERED_STEPS = 20000
+EXPLAIN_STEPS = 20000  # the bound on a search that explains; the deciding search has none
+EXPLAIN_USED = [0]      # the most steps any one explaining search took (the self-test reads it)
 
 
 def corrected_place(text, parts, lead, trail, neg=True, ordered=True):
@@ -334,6 +335,7 @@ def corrected_place(text, parts, lead, trail, neg=True, ordered=True):
                     key=lambda c: (c[2], c[0])) for q in qts]
     best = None
     steps = 0
+    explaining = not (neg and ordered)
 
     def neg_in(a, b):
         return any(is_negation(t.raw) for t in mt[a:b])
@@ -342,11 +344,14 @@ def corrected_place(text, parts, lead, trail, neg=True, ordered=True):
         nonlocal best, steps
         if best and cost > best[0]:
             return
-        if not ordered:
-            # only the search for another order is bounded: it explains, it never
-            # decides. Cut short, it finds nothing and an older reason is given.
+        if explaining:
+            # a search with a rule off explains an absent quote; it never decides
+            # an outcome. It needs one placement, not the best, so it stops at the
+            # first and at a step bound. Cut short, it finds nothing and an older
+            # reason is given.
             steps += 1
-            if best or steps > UNORDERED_STEPS:
+            EXPLAIN_USED[0] = max(EXPLAIN_USED[0], steps)
+            if best or steps > EXPLAIN_STEPS:
                 return
         if idx == len(parts):
             if neg and trail and neg_in(chosen[-1][1], len(mt)):
@@ -725,14 +730,19 @@ def selftest(no_log):
             for line in lines:
                 print(f"       {line}")
             continue
+        EXPLAIN_USED[0] = 0
         lines, counts, _, _, _, _ = check(pages, words)
         got = {k: v for k, v in counts.items() if v}
         code = exit_code(counts)
         ok = got == want["outcomes"] and code == want["exit"]
         for needle in want.get("contains", []):
             ok = ok and any(needle in line for line in lines)
+        cost = ""
+        if "max_explain_steps" in want:  # a cost case: counted in steps, never timed
+            ok = ok and EXPLAIN_USED[0] <= want["max_explain_steps"]
+            cost = f" · explaining search: {EXPLAIN_USED[0]} steps, at most {want['max_explain_steps']}"
         results.append(ok)
-        print(f"{'ok  ' if ok else 'FAIL'} {case}: {got} exit {code}")
+        print(f"{'ok  ' if ok else 'FAIL'} {case}: {got} exit {code}{cost}")
         for line in lines:
             print(f"       {line}")
         for k, v in counts.items():

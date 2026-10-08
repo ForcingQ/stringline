@@ -1,3 +1,4 @@
 outcomes = { absent = 1 }
 exit = 1
 contains = ["the parts are out of order"]
+max_explain_steps = 20001
