@@ -1,0 +1,5 @@
+# synthetic session record, written for this fixture; no real record is read
+# the same closing shape inside a typed line: the line kept, the block gone
+exit = 0
+counts = { messages = 1 }
+out = "look at this  and tell me what you see\n"

@@ -1,0 +1,5 @@
+# synthetic session record, written for this fixture; no real record is read
+# the twin: a closing tag of a longer name is not this block's closer, so the opener has none and all is kept
+exit = 0
+counts = { messages = 1 }
+out = "see below\n<pasted_content id=\"p1\">\nsome words\n</pasted_contents id=\"p1\">\nstill typed\n"

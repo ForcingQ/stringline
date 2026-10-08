@@ -36,7 +36,9 @@ not see, exit 2, no row, no output left. Words a person types as a slash command
 go with the command. A block typed at a line's start with its closing tag is
 removed, as the harness's would be; a tag typed mid-line with no attribute, or
 with no closing tag, is kept. Removal runs to the first closing tag (a block
-whose body holds its own closing tag is not proven). Limit: --out and --times
+whose body holds its own closing tag is not proven); a closing tag may carry
+attributes, as a real record's paste does (its id is repeated there), a shape
+no fixture held until a real run let six pasted blocks through as typed. Limit: --out and --times
 are compared as one name after Unicode composition and then case folding, not
 composed again after; a few Greek letters with two accents (U+0390, U+03B0 and
 their kin) against their capitals are one file to some file systems and two
@@ -115,11 +117,14 @@ def remove_blocks(text):
         tag_end = text.find(">", m.end(1))
         has_attr = m.group(2) == " " and tag_end > m.end(2) and \
             text[m.end(2):tag_end].strip() != ""
-        close = text.find(f"</{name}>", start)
+        # a closing tag is bare, or carries attributes: a real record repeats a
+        # paste's id in it (</pasted_content id="...">); a longer name is no closer
+        closer = re.compile(r"</" + re.escape(name) + r"(?:\s[^>]*)?>").search(text, start)
+        close = closer.start() if closer else -1
         if tag_end < 0 or close < 0 or not (at_line_start or has_attr):
             pos = m.end(1)
             continue
-        end = close + len(name) + 3
+        end = closer.end()
         if name == "pasted_content":
             pastes.append(text[tag_end + 1:close])
         line_end = text.find("\n", end)
