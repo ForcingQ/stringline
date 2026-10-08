@@ -1,14 +1,6 @@
-<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="color-scheme" content="light dark">
-<title>stringline</title>
-<style>
-@font-face{font-family:"Inter";font-weight:400;font-style:normal;font-display:swap;src:url(fonts/Inter-400.ttf) format("truetype")}
-@font-face{font-family:"Inter";font-weight:500;font-style:normal;font-display:swap;src:url(fonts/Inter-500.ttf) format("truetype")}
-@font-face{font-family:"JetBrains Mono";font-weight:500;font-style:normal;font-display:swap;src:url(fonts/JetBrainsMono-500.ttf) format("truetype")}
+@font-face{font-family:"Inter";font-weight:400;font-style:normal;font-display:swap;src:url({fonts}Inter-400.ttf) format("truetype")}
+@font-face{font-family:"Inter";font-weight:500;font-style:normal;font-display:swap;src:url({fonts}Inter-500.ttf) format("truetype")}
+@font-face{font-family:"JetBrains Mono";font-weight:500;font-style:normal;font-display:swap;src:url({fonts}JetBrainsMono-500.ttf) format("truetype")}
 :root{color-scheme:light dark;--g:#EFEFEF;--i:#151515;--s:#5C5C5C;--l:#151515;--b:var(--s)}
 @media (prefers-color-scheme:dark){:root{--g:#1A1A1A;--i:#EEEEEE;--s:#A6A6A6;--l:#D4A373;}}
 *{box-sizing:border-box}
@@ -69,15 +61,3 @@ footer p{margin-left:0}}
 body{font-size:10.5pt}nav{display:none}pre{white-space:pre-wrap;overflow:visible}
 li,dt,dd,pre{break-inside:avoid}h1,h2{break-after:avoid}
 main a[href]::after{content:" (" attr(href) ")";font-size:.85em;color:var(--s)}}
-</style>
-</head>
-<body>
-<header><p><a href="index.html">stringline</a></p>
-<nav><ul><li><a href="tools.html">Tools</a></li><li><a href="build.html">The build</a></li><li><a href="how-it-runs.html">How it runs</a></li></ul></nav></header>
-<main>
-<h1>stringline</h1>
-<ul class="rooms"><li><a href="tools.html">Tools</a><p>One card per released tool: what it is, the first thing to do, <a href="how-it-runs.html#term-one-gotcha">the one gotcha</a>, and what it has caught.</p></li><li><a href="build.html">The build</a><p>The record of how this is built, session by session:</p></li><li><a href="how-it-runs.html">How it runs</a><p>How a working session opens and closes, and what waits for the owner&#x27;s word, is <a href="../OPEN-PROTOCOL.md">OPEN-PROTOCOL.md</a>. Each decision and its reason is <a href="../DECISIONS.md">DECISIONS.md</a>. Those two files are the one text of how the work runs; this room points at them and does not copy them.</p></li></ul>
-</main>
-<footer><p>The earlier work this recreates is not shown. That it mirrors that work is the owner&#x27;s claim, dated. What you can check: whether each tool fires on its planted fault, and what its run log shows.</p></footer>
-</body>
-</html>

@@ -1,0 +1,1 @@
+The font files in this folder are not under this repository's MIT licence. Each is under the SIL Open Font License 1.1, with its own copyright notice: Inter in LICENSE-Inter.txt, JetBrains Mono in LICENSE-JetBrainsMono.txt.

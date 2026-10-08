@@ -3,11 +3,77 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
 <title>The build</title>
+<style>
+@font-face{font-family:"Inter";font-weight:400;font-style:normal;font-display:swap;src:url(fonts/Inter-400.ttf) format("truetype")}
+@font-face{font-family:"Inter";font-weight:500;font-style:normal;font-display:swap;src:url(fonts/Inter-500.ttf) format("truetype")}
+@font-face{font-family:"JetBrains Mono";font-weight:500;font-style:normal;font-display:swap;src:url(fonts/JetBrainsMono-500.ttf) format("truetype")}
+:root{color-scheme:light dark;--g:#EFEFEF;--i:#151515;--s:#5C5C5C;--l:#151515;--b:var(--s)}
+@media (prefers-color-scheme:dark){:root{--g:#1A1A1A;--i:#EEEEEE;--s:#A6A6A6;--l:#D4A373;}}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--g);color:var(--b);font:400 1.0625rem/1.6 Inter,system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;overflow-wrap:break-word}
+h1,h2,p,ul,ol,dl,dd,pre{margin:0}
+a{color:var(--i);text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:.22em;text-decoration-color:var(--s);transition:text-decoration-color .15s ease-out}
+a:hover{text-decoration-color:var(--i)}
+@media (prefers-reduced-motion:reduce){a{transition:none}}
+:focus-visible{outline:2px solid var(--i);outline-offset:3px;border-radius:4px}
+header,main,footer{padding-left:max(1.25rem,calc((100% - 52rem)/2));padding-right:max(1.25rem,calc((100% - 52rem)/2))}
+header{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem 2rem;padding-top:1.25rem;padding-bottom:1rem;border-bottom:1px solid var(--l)}
+header p{flex:0 0 10rem;font-weight:500;font-size:1.125rem;letter-spacing:-.02em}
+header a{text-decoration:none}
+nav ul{display:flex;flex-wrap:wrap;gap:.25rem .5rem;list-style:none;padding:0;margin-left:calc(-.5rem - 1px)}
+nav a{display:block;font:500 .75rem/1.5 "JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;letter-spacing:.06em;text-transform:uppercase;color:var(--s);padding:calc(.2rem + 1px) calc(.5rem + 1px)}
+nav a:hover{color:var(--i)}
+nav a[aria-current]{color:var(--i);border:1px solid var(--i);border-radius:4px;padding:.2rem .5rem}
+main{display:grid;grid-template-columns:10rem minmax(0,40rem);column-gap:2rem;padding-top:3.5rem;padding-bottom:4rem}
+main>*{grid-column:2;margin-bottom:1rem}
+h1{font-weight:500;font-size:2.5rem;line-height:1.1;letter-spacing:-.02em;color:var(--i);margin-bottom:2rem}
+h2{grid-column:1;font:500 .75rem/1.5 "JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;letter-spacing:.06em;text-transform:uppercase;color:var(--s);margin-top:1rem;padding-top:1.2rem;border-top:1px solid var(--s)}
+h2+*{margin-top:1rem;padding-top:1rem;border-top:1px solid var(--s)}
+main ul{padding-left:1.1rem}
+main li{margin-bottom:.35rem}
+code{font:500 .875em/1.5 "JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:var(--i)}
+pre{overflow-x:auto;padding-bottom:.25rem}
+pre code{display:inline-block;font-size:.875rem;border:1px solid var(--s);border-radius:4px;padding:.5rem .75rem}
+p.caught{font:500 .8125rem/1.75 "JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+dl,ul.rooms{grid-column:1/-1;list-style:none;padding:0;border-bottom:1px solid var(--s)}
+dl,ul.rooms li{display:grid;grid-template-columns:10rem minmax(0,40rem);column-gap:2rem}
+dt,dd,ul.rooms li{border-top:1px solid var(--s);padding:.9rem 0}
+ul.rooms li{margin:0}
+dt,ul.rooms li>a{font-weight:500;color:var(--i)}
+dt{scroll-margin-top:1rem}
+dt:target{text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:.3em}
+dt:target,dt:target+dd{border-top-color:var(--i)}
+ol.walk{list-style:none;padding-left:0;padding-bottom:.25rem;border-left:1px solid var(--i)}
+ol.walk li{position:relative;margin:0;padding:0 0 1.4rem 1.5rem}
+ol.walk li:last-child{padding-bottom:0}
+ol.walk li::before{content:"";position:absolute;left:-.4rem;top:.55rem;width:.8rem;border-top:1px solid var(--i)}
+ol.walk time{display:block;font:500 .75rem/1.5 "JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;letter-spacing:.06em;text-transform:uppercase;color:var(--s)}
+ol.walk a{font-weight:500;font-size:1.125rem}
+footer{border-top:1px solid var(--s);padding-top:1.25rem;padding-bottom:3rem;color:var(--s);font-size:.875rem}
+footer p{max-width:40rem;margin-left:12rem}
+@media (max-width:48rem){main,dl,ul.rooms li{display:block}
+main{padding-top:2.25rem}
+header p{flex-basis:100%}
+h1{font-size:2rem;margin-bottom:1.5rem}
+h2{margin-top:1.75rem;margin-bottom:.6rem}
+h2+*{margin-top:0;padding-top:0;border-top:0}
+h2+ol.walk{padding-top:.25rem}
+dt{padding-bottom:.15rem}
+dd{border-top:0;padding-top:0}
+ul.rooms li>a{display:block;margin-bottom:.25rem}
+footer p{margin-left:0}}
+@media print{:root{color-scheme:light;--g:#FFFFFF;--i:#151515;--s:#5C5C5C;--l:#151515;}
+body{font-size:10.5pt}nav{display:none}pre{white-space:pre-wrap;overflow:visible}
+li,dt,dd,pre{break-inside:avoid}h1,h2{break-after:avoid}
+main a[href]::after{content:" (" attr(href) ")";font-size:.85em;color:var(--s)}}
+</style>
 </head>
 <body>
 <header><p><a href="index.html">stringline</a></p>
-<nav><ul><li><a href="tools.html">Tools</a></li><li><a href="build.html">The build</a></li><li><a href="how-it-runs.html">How it runs</a></li></ul></nav></header>
+<nav><ul><li><a href="tools.html">Tools</a></li><li><a href="build.html" aria-current="page">The build</a></li><li><a href="how-it-runs.html">How it runs</a></li></ul></nav></header>
 <main>
 <h1>The build</h1>
 <p>The record of how this is built, session by session:</p>

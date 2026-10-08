@@ -115,7 +115,7 @@ def load_corpus(manual):
             raise RenderError(f'manual/readers/{rid}.toml: missing')
     return {'site': site, 'rooms': rooms, 'readers': readers,
             'terms': load_dir(manual, 'terms', 'term'),
-            'cards': load_dir(manual, 'tools', 'card')}
+            'cards': load_dir(manual, 'tools', 'card'), 'look': load_look(manual)}
 
 
 # ---- the markdown subset: paragraphs, [text](path), [text](#term:id), *emphasis*, `code`,
@@ -174,14 +174,47 @@ def markdown(body, depth=0):
 # ---- pages
 
 
-def page(site, title, body_html, depth):
+FONTS_TOKEN = '{fonts}'  # in the style block, replaced by the page's own way to site/fonts/
+
+
+def load_look(manual):
+    """The look, held beside the records: one style block, and the font files it names with
+    their licences. Returns (style text, {file name: bytes}). A missing or empty style block,
+    or a font the block names that is not there, is a refusal, never a page with no look."""
+    look = os.path.join(manual, 'look')
+    try:
+        with open(os.path.join(look, 'style.css'), encoding='utf-8') as f:
+            style = f.read()
+    except (OSError, UnicodeDecodeError) as e:
+        raise RenderError(f'manual/look/style.css: cannot read ({type(e).__name__})')
+    if not style.strip():
+        raise RenderError('manual/look/style.css: empty')
+    if '</style' in style.lower():
+        raise RenderError('manual/look/style.css: holds a closing style tag')
+    fonts, folder = {}, os.path.join(look, 'fonts')
+    for name in sorted(os.listdir(folder)) if os.path.isdir(folder) else []:
+        path = os.path.join(folder, name)
+        if name.startswith('.') or not os.path.isfile(path):
+            continue
+        with open(path, 'rb') as f:
+            fonts[name] = f.read()
+    for name in re.findall(re.escape(FONTS_TOKEN) + r'([^)\s"\']+)', style):
+        if not fonts.get(name):
+            raise RenderError(f'manual/look/fonts/{name}: named by the style block and not there')
+    return style, fonts
+
+
+def page(site, title, body_html, depth, current=None):
     up = '../' * depth
-    rooms = ''.join(f'<li><a href="{up}{rid}.html">{html.escape(t)}</a></li>'
-                    for rid, t in site['room_titles'])
+    rooms = ''.join(f'<li><a href="{up}{rid}.html"'
+                    f'{" aria-current=" + chr(34) + "page" + chr(34) if rid == current else ""}>'
+                    f'{html.escape(t)}</a></li>' for rid, t in site['room_titles'])
     head_title = html.escape(title)
+    style = site['style'].replace(FONTS_TOKEN, f'{up}fonts/')
     return (f'<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n'
             f'<meta name="viewport" content="width=device-width, initial-scale=1">\n'
-            f'<title>{head_title}</title>\n</head>\n<body>\n'
+            f'<meta name="color-scheme" content="light dark">\n'
+            f'<title>{head_title}</title>\n<style>\n{style}</style>\n</head>\n<body>\n'
             f'<header><p><a href="{up}index.html">{html.escape(site["title"])}</a></p>\n'
             f'<nav><ul>{rooms}</ul></nav></header>\n'
             f'<main>\n<h1>{head_title}</h1>\n{body_html}\n</main>\n'
@@ -209,13 +242,14 @@ def card_page(site, card, caught):
     line = caught(card['id'], card.get('catching'))
     if not isinstance(line, str) or not line.strip():
         raise RenderError(f'manual/tools/{card["id"]}.toml: runlog gave no caught line')
-    parts.append(f'<h2>{CAUGHT_LABEL}</h2>\n<p>{html.escape(line)}</p>')
-    return page(site, card['name'], '\n'.join(parts), depth=1)
+    parts.append(f'<h2>{CAUGHT_LABEL}</h2>\n<p class="caught">{html.escape(line)}</p>')
+    return page(site, card['name'], '\n'.join(parts), depth=1, current=TOOLS_ROOM)
 
 
 def render_files(corpus, caught=None):
-    """Returns {relative path: text} for everything the renderer writes."""
+    """Returns {relative path: text, or bytes for a font} for everything the renderer writes."""
     site = dict(corpus['site'])
+    site['style'], fonts = corpus['look']
     rooms, cards = corpus['rooms'], corpus['cards']
     site['room_titles'] = [(rid, rooms[rid]['title']) for rid in site['rooms']]
     for c in cards:
@@ -227,20 +261,29 @@ def render_files(corpus, caught=None):
     building = [c for c in cards if c['status'] == 'building']
     if released and caught is None:
         caught = runlog_caught_line()
-    files = {'site/index.html': page(site, site['title'], '', depth=0)}
+    cards_ul = ('\n<ul>' + ''.join(f'<li><a href="tools/{c["id"]}.html">{html.escape(c["name"])}'
+                                   f'</a>: {inline_md(c["what"])}</li>' for c in released) + '</ul>'
+                if released else '')
+    # the front page carries only text that exists: each room's title and the first block of
+    # its body, then the released cards as the tools room lists them (none released: no list)
+    front = '<ul class="rooms">' + ''.join(
+        f'<li><a href="{rid}.html">{html.escape(rooms[rid]["title"])}</a>'
+        f'{markdown(rooms[rid]["body"]).split(chr(10))[0]}</li>' for rid in site['rooms']) + '</ul>'
+    files = {'site/index.html': page(site, site['title'], front + cards_ul, depth=0)}
+    for name, data in fonts.items():
+        files[f'site/fonts/{name}'] = data
     for rid in site['rooms']:
         room = rooms[rid]
         body = markdown(room['body'])
-        if rid == TOOLS_ROOM and released:
-            body += '\n<ul>' + ''.join(f'<li><a href="tools/{c["id"]}.html">{html.escape(c["name"])}'
-                                       f'</a>: {inline_md(c["what"])}</li>' for c in released) + '</ul>'
+        if rid == TOOLS_ROOM:
+            body += cards_ul
         if rid == BUILD_ROOM and building:
             body += '\n<ul>' + ''.join(f'<li>{html.escape(c["name"])}: {IN_PROGRESS}</li>'
                                        for c in building) + '</ul>'
         if rid == TERMS_ROOM and corpus['terms']:
             body += '\n<dl>' + ''.join(f'<dt id="term-{t["id"]}">{html.escape(t["term"])}</dt>'
                                        f'<dd>{markdown(t["body"])}</dd>' for t in corpus['terms']) + '</dl>'
-        files[f'site/{rid}.html'] = page(site, room['title'], body, depth=0)
+        files[f'site/{rid}.html'] = page(site, room['title'], body, depth=0, current=rid)
     for c in released:
         files[f'site/tools/{c["id"]}.html'] = card_page(site, c, caught)
     for rid, name in READERS:
@@ -276,6 +319,10 @@ def write(files, out, in_place):
         for rel, text in files.items():
             path = os.path.join(out, rel)
             os.makedirs(os.path.dirname(path), exist_ok=True)
+            if isinstance(text, bytes):
+                with open(path, 'wb') as f:
+                    f.write(text)
+                continue
             with open(path, 'w', encoding='utf-8', newline='\n') as f:
                 f.write(text)
     except OSError as e:
@@ -338,8 +385,10 @@ def selftest_cases(case):
         fa = render(manual, a, stub)
         render(manual, a, stub)  # twice into the same place
         fb = render(manual, b, stub)
-        same = fa == fb and all(open(os.path.join(a, p), encoding='utf-8').read() == t
-                                for p, t in fb.items())
+        def on_disk(path, t):
+            with open(path, 'rb') as f:
+                return f.read() == (t if isinstance(t, bytes) else t.encode('utf-8'))
+        same = fa == fb and all(on_disk(os.path.join(a, p), t) for p, t in fb.items())
         case('render twice: byte-identical', same)
         case('render: no empty file', all(fa.values()))
         case('front page carries the limit line',
@@ -358,6 +407,52 @@ def selftest_cases(case):
              'Fixture building tool' not in fa['site/tools.html']
              and f'Fixture building tool: {IN_PROGRESS}' in fa['site/build.html']
              and 'site/tools/card-building.html' not in fa)
+
+        pages = {p: t for p, t in fa.items() if p.endswith('.html')}
+        case('the look: every page carries the one style block and says light and dark',
+             pages and all('<style>' in t and '<meta name="color-scheme" content="light dark">' in t
+                           and FONTS_TOKEN not in t for t in pages.values()))
+        fonts_dir = os.path.join(manual, 'look', 'fonts')
+        shipped = {n for n in os.listdir(fonts_dir) if not n.startswith('.')}
+        case('the look: every font and licence file is written to site/fonts/, byte for byte',
+             shipped and all(open(os.path.join(fonts_dir, n), 'rb').read() == fa.get(f'site/fonts/{n}')
+                             for n in shipped))
+        case('the look: a font address is the page\'s own way to site/fonts/',
+             'url(fonts/' in fa['site/index.html'] and 'url(../fonts/' not in fa['site/index.html']
+             and 'url(../fonts/' in page_ and 'url(fonts/' not in page_)
+        case('the look: the current room is marked in the nav, once, and a card marks the tools room',
+             fa['site/build.html'].count('aria-current="page"') == 1
+             and f'href="{BUILD_ROOM}.html" aria-current="page"' in fa['site/build.html']
+             and f'href="../{TOOLS_ROOM}.html" aria-current="page"' in page_
+             and 'aria-current="page"' not in fa['site/index.html'])
+        case('the front page lists the rooms and the released cards, from text that exists',
+             fa['site/index.html'].split('<main>')[1].count('<li>')
+             == len(load_corpus(manual)['site']['rooms']) + 1
+             and 'tools/card-released.html' in fa['site/index.html'])
+        case('the caught line is marked for the look', '<p class="caught">no real run yet</p>' in page_)
+        bare = os.path.join(tmp, 'bare')
+        shutil.copytree(manual, bare)
+        os.remove(os.path.join(bare, 'tools', 'card-released.toml'))
+        fbare = render(bare, os.path.join(tmp, 'bare-out'), stub)
+        case('no released card: the front page has no empty list',
+             '<ul></ul>' not in fbare['site/index.html'] and '<ul></ul>' not in fbare['site/tools.html']
+             and fbare['site/index.html'].count('<ul') == 2)  # the nav and the rooms
+        for label, breaker, needle in (
+                ('an empty style block', lambda d: open(os.path.join(d, 'look', 'style.css'), 'w').close(),
+                 'manual/look/style.css: empty'),
+                ('a missing style block', lambda d: os.remove(os.path.join(d, 'look', 'style.css')),
+                 'manual/look/style.css: cannot read'),
+                ('a font the style block names that is not there',
+                 lambda d: os.remove(os.path.join(d, 'look', 'fonts', sorted(
+                     n for n in shipped if n.endswith('.ttf'))[0])), 'named by the style block and not there')):
+            broken = os.path.join(tmp, 'look-' + label.split()[1])
+            shutil.copytree(manual, broken)
+            breaker(broken)
+            try:
+                render(broken, os.path.join(tmp, 'never'), stub)
+                case(f'the look: {label} is refused', False)
+            except RenderError as e:
+                case(f'the look: {label} is refused', needle in str(e))
 
         keep = os.path.join(tmp, 'keep')
         os.makedirs(os.path.join(keep, 'site'))
