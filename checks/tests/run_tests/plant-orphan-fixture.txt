@@ -1,0 +1,1 @@
+A fixture with no test beside its folder.
