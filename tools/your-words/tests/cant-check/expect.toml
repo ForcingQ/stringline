@@ -1,0 +1,4 @@
+words = "no-such-file.txt"
+outcomes = { cant_check = 1 }
+exit = 2
+contains = ["missing"]

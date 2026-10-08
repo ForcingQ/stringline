@@ -1,0 +1,3 @@
+# two quotes on one line, both exact; nothing in code is read as a quote
+outcomes = { exact = 2 }
+exit = 0
