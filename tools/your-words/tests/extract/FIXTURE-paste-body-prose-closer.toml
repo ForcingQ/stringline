@@ -1,0 +1,5 @@
+# synthetic session record, written for this fixture; no real record is read
+# prose inside a paste's body that begins like a closing tag does not end the paste early
+exit = 0
+counts = { messages = 1 }
+out = "see\nstill typed\n"

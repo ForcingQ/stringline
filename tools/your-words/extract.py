@@ -40,8 +40,11 @@ whose body holds its own closing tag is not proven); a closing tag may carry
 attributes, as a real record's paste does (its id is repeated there), a shape
 no fixture held until a real run let six pasted blocks through as typed. A tag,
 opening or closing, sits on one line, and a > inside a double-quoted attribute
-does not end it; a tag broken across lines is not a tag here and is kept. A
-closing tag's id is not compared with the opening tag's. Limit: --out and --times
+does not end it; a tag broken across lines is not a tag here and is kept. In a
+closing tag only name=value pairs count as attributes: prose after the name,
+or a bare word (</name hidden>), closes nothing, and that block is kept whole
+where a reader can see it, never cut short. A closing tag's id is not compared
+with the opening tag's. Limit: --out and --times
 are compared as one name after Unicode composition and then case folding, not
 composed again after; a few Greek letters with two accents (U+0390, U+03B0 and
 their kin) against their capitals are one file to some file systems and two
@@ -106,6 +109,11 @@ def parse_stamp(value):
 
 TAG_REST = re.compile(r'''(?:"[^"\n]*"|[^>"\n])*>''')  # the rest of a tag, to its >
 
+# after a closing tag's name: name=value pairs only (a value quoted or one bare
+# word), then >. Prose after the name is not an attribute, so it closes nothing.
+CLOSER_REST = (r'''(?:[ \t]+[A-Za-z_][\w:.-]*=(?:"[^"\n]*"|'[^'\n]*'|[^\s"'<>=]+))*'''
+               r"[ \t]*>")
+
 
 def remove_blocks(text):
     """(text with the harness's blocks removed, [removed pasted_content bodies])."""
@@ -128,7 +136,7 @@ def remove_blocks(text):
         # a closing tag is bare, or carries attributes: a real record repeats a
         # paste's id in it (</pasted_content id="...">); a longer name is no closer.
         # It is looked for after the opening tag, never inside it.
-        closer = re.compile(r"</" + re.escape(name) + r"(?=[ \t>])" + TAG_REST.pattern
+        closer = re.compile(r"</" + re.escape(name) + CLOSER_REST
                             ).search(text, tag_end + 1) if tag_end >= 0 else None
         close = closer.start() if closer else -1
         if tag_end < 0 or close < 0 or not (at_line_start or has_attr):

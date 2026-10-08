@@ -1,0 +1,5 @@
+# synthetic session record, written for this fixture; no real record is read
+# a bare word after the name is not an attribute here: no closer, so the block is kept, where a reader can see it
+exit = 0
+counts = { messages = 1 }
+out = "see\n<pasted_content id=\"a1\">\nbody\n</pasted_content hidden>\nstill here\n"
