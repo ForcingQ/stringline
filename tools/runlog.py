@@ -18,20 +18,28 @@ Import it by its path, never as a package (no folder here is one):
 `files` (write, tool_version): the tool's own files. A relative entry is relative
 to the root of the repository that holds this module (the card's form); an
 absolute entry is used as given (a tool in another repository passes these).
-Never resolved against the working folder.
+Never resolved against the working folder. `files` is a list (a bare string is
+refused). Limit: a tool in another repository that passes relative `files`
+writes into this repository's log, stamped `uncommitted`; such a tool passes
+absolute paths.
 
 `read` and `compared_against`: paths relative to the repository, `fixture`, or
-the phrase "outside the repository"; an absolute path or one climbing out of
-the repository is refused (the folder is public; a path into a machine is not).
+the phrase "outside the repository" as the whole entry. Refused: an absolute,
+home, drive-letter, `$VARIABLE` or `scheme://` path, one climbing out of the
+repository, and the phrase followed by anything (the folder is public; a path
+into a machine is not).
 
 Refusals, each its own class (all are RunLogError): BadKind · BadInvoker ·
 BadToolId (not lower-case letters, digits, hyphens) · UnnamedPlant ·
 SelftestWroteReal · RealReadFixture (`fixture`, or a path component `tests` in
-any letter case) · ReservedTool (a real row under `fixture-tool` in a tool's log
-folder; a self-test's own temporary folder may hold one) · MachinePath ·
-RealCarriesPlant (a real row with planted_by) · NotOneLine (a caught or
-could_not entry empty or holding a line break) · BadOutcomes (not a non-empty
-map of name to whole number).
+any letter case) · ReservedTool (a real row under `fixture-tool` written to a
+folder named `runs` in any letter case, to any folder inside a git repository, or to the
+default log folder; only a scratch folder outside every repository, as a
+self-test's, may hold one, as SPEC-run-log's done-when asks) · MachinePath ·
+RealCarriesPlant (a real row with planted_by) · NotOneLine (an entry of read,
+compared_against, caught or could_not that is not a string, is blank, or holds
+any character str.splitlines() breaks on) · BadOutcomes (not a non-empty map of
+name to whole number) · NotAList (`files` or `catching` given as a string).
 
 Limit, said plainly: the module never reads the corpus, so it does not know a
 tool's own outcome names. caught_line(tool, catching): a real row carrying a
@@ -56,8 +64,8 @@ INVOKERS = ("selftest", "person")
 RESERVED = "fixture-tool"
 FIELDS = ("tool", "started", "kind", "planted_by", "invoked_by", "read",
           "compared_against", "outcomes", "caught", "could_not", "tool_version")
-NAME_RE = re.compile(r"^(\d{8}T\d{6}\.\d{6}Z)_([^_]+)_([^_]+)\.json$")
-ID_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+NAME_RE = re.compile(r"(\d{8}T\d{6}\.\d{6}Z)_([^_]+)_([^_]+)\.json")
+ID_RE = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
 OUTSIDE = "outside the repository"
 
 
@@ -109,6 +117,10 @@ class BadOutcomes(RunLogError):
     """outcomes is not a non-empty map of outcome name to whole number."""
 
 
+class NotAList(RunLogError):
+    """files or catching given as a string, which would be read letter by letter."""
+
+
 # ---------------------------------------------------------------- locations
 
 _GIT_MISSING = object()
@@ -155,6 +167,8 @@ def _resolve(entry):
 
 
 def _paths(files):
+    if isinstance(files, (str, bytes)):
+        raise NotAList("files is a list of paths, not one string")
     return [_resolve(f) for f in files] if files else [os.path.abspath(__file__)]
 
 
@@ -192,7 +206,21 @@ def _as_list(value):
         return []
     if isinstance(value, str):
         return [value] if value else []
-    return [str(v) for v in value]
+    return list(value)  # entries are checked, never turned into text
+
+
+def _one_line(entry):
+    return isinstance(entry, str) and entry.strip() != "" and entry.splitlines() == [entry]
+
+
+def _inside_a_repository(folder):
+    here = os.path.abspath(folder)
+    while not os.path.isdir(here):
+        up = os.path.dirname(here)
+        if up == here:
+            return False
+        here = up
+    return repo_root(here) is not None
 
 
 def _clean(entry):
@@ -207,9 +235,13 @@ def _names_fixture(entry):
 
 def _machine_path(entry):
     raw = entry.strip()
-    if raw.lower().startswith(OUTSIDE) or raw.lower() == "fixture":
+    if raw.lower() in (OUTSIDE, "fixture"):
         return False
-    if raw.startswith(("/", "\\", "~")) or re.match(r"^[A-Za-z]:", raw):
+    if raw.lower().startswith(OUTSIDE):
+        return True  # the phrase is a whole entry, never a prefix to a path
+    if raw.startswith(("/", "\\", "~", "$")) or re.match(r"^[A-Za-z]:", raw):
+        return True
+    if re.match(r"^[A-Za-z][A-Za-z0-9+.-]*://", raw):
         return True
     clean = _clean(raw)
     return clean == ".." or clean.startswith("../")
@@ -226,32 +258,39 @@ def write(tool, files, kind, planted_by, invoked_by, read, compared_against,
         raise BadKind(f"kind must be planted or real, not {kind!r}")
     if invoked_by not in INVOKERS:
         raise BadInvoker(f"invoked_by must be selftest or person, not {invoked_by!r}")
-    if not isinstance(tool, str) or not ID_RE.match(tool):
+    if not isinstance(tool, str) or not ID_RE.fullmatch(tool):
         raise BadToolId(f"a tool id is lower-case letters, digits and hyphens: {tool!r}")
+    _paths(files)  # NotAList for a bare string
     planted_by = (planted_by or "").strip()
     read, compared_against = _as_list(read), _as_list(compared_against)
+    caught, could_not = _as_list(caught), _as_list(could_not)
+    paths = [e for e in read + compared_against if isinstance(e, str)]
     if kind == "planted" and not planted_by:
         raise UnnamedPlant("a planted row must say what was planted and by whom")
     if kind == "real" and invoked_by == "selftest":
         raise SelftestWroteReal("a self-test writes planted rows only")
     if kind == "real":
-        bad = [e for e in read + compared_against if _names_fixture(e)]
+        bad = [e for e in paths if _names_fixture(e)]
         if bad:
             raise RealReadFixture(f"a real row read fixture material: {bad[0]}")
-        log = default_folder(files)
-        if tool == RESERVED and os.path.realpath(folder or log) == os.path.realpath(log):
-            raise ReservedTool(f"{RESERVED} is reserved for self-tests: no real row"
-                               " under it lands in a tool's log folder")
-    bad = [e for e in read + compared_against if _machine_path(e)]
+        target = os.path.abspath(folder or default_folder(files))
+        if tool == RESERVED and (
+                os.path.basename(os.path.normpath(target)).lower() == "runs"
+                or _inside_a_repository(target)
+                or os.path.realpath(target) == os.path.realpath(default_folder(files))):
+            raise ReservedTool(f"{RESERVED} is reserved for self-tests: a real row"
+                               " under it lands only in a scratch folder outside"
+                               " every repository")
+    bad = [e for e in paths if _machine_path(e)]
     if bad:
         raise MachinePath("read and compared_against name paths in the repository,"
                           " never a path into a machine")
     if kind == "real" and planted_by:
         raise RealCarriesPlant("a real row carries no planted_by")
-    caught, could_not = _as_list(caught), _as_list(could_not)
-    for entry in caught + could_not:
-        if not entry.strip() or "\n" in entry or "\r" in entry:
-            raise NotOneLine(f"caught and could_not hold one-line strings: {entry!r}")
+    for entry in read + compared_against + caught + could_not:
+        if not _one_line(entry):
+            raise NotOneLine(f"read, compared_against, caught and could_not hold"
+                             f" one-line strings: {entry!r}")
     if (not isinstance(outcomes, dict) or not outcomes or not all(
             isinstance(v, int) and not isinstance(v, bool) and v >= 0
             for v in outcomes.values())):
@@ -340,9 +379,12 @@ def rows(tool, folder=None):
     for name in names:
         if not name.endswith(".json"):
             continue
-        m = NAME_RE.match(name)
+        m = NAME_RE.fullmatch(name)
         if not m:
             bad.append((name, "name does not parse"))
+            continue
+        if not ID_RE.fullmatch(m.group(2)):
+            bad.append((name, "the tool id in the name is not an id"))
             continue
         if m.group(2) != tool:
             continue
@@ -373,6 +415,8 @@ def _plural(n, one, many):
 def caught_line(tool, catching=None, folder=None):
     """The card's "what it has caught" sentence, from the tool's real rows only.
     An empty or absent `catching` means every real run is a checking run."""
+    if isinstance(catching, (str, bytes)):
+        raise NotAList("catching is a list of outcome names, not one string")
     found = rows(tool, folder)
     unreadable = len(found.cant_tell)
     checking, other = [], []
@@ -427,15 +471,26 @@ def _selftest():
     with open(os.path.join(FIXTURES, "writer-cases.json"), encoding="utf-8") as fh:
         cases = json.load(fh)
     with tempfile.TemporaryDirectory() as tmp:
-        folder = os.path.join(tmp, "runs")
+        folder = os.path.join(tmp, "rows")  # a scratch folder in no repository
         repo = os.path.join(tmp, "repo")
+        plain = os.path.join(tmp, "plain")
         subprocess.run(["git", "init", "-q", repo], check=True)
-        open(os.path.join(repo, "tool.py"), "w").close()
+        os.makedirs(plain)
+        for where in (repo, plain):
+            open(os.path.join(where, "tool.py"), "w").close()
         for case in cases["cases"]:
             args = dict(cases["base"], files=[__file__], folder=folder)
             args.update(case["set"])
             if args.pop("temp_repo", False):  # the default folder: the repo's runs/
                 args.update(files=[os.path.join(repo, "tool.py")], folder=None)
+            if args.pop("files_plain", False):  # the tool's files in no repository
+                args["files"] = [os.path.join(plain, "tool.py")]
+            if "files_string" in args:  # files as one string, not a list
+                args["files"] = args.pop("files_string")
+            if "folder_in_tmp" in args:
+                args["folder"] = os.path.join(tmp, args.pop("folder_in_tmp"))
+            if "folder_in_repo" in args:
+                args["folder"] = os.path.join(repo, args.pop("folder_in_repo"))
             try:
                 path = write(**args)
                 got = "written"
@@ -502,7 +557,10 @@ def _selftest():
             expect(f"{case}: {name} is can't tell ({reason})",
                    reason in dict(got.cant_tell).get(name, ""),
                    dict(got.cant_tell).get(name, "read as a row"))
-        line = caught_line(RESERVED, catching=want.get("catching"), folder=folder)
+        try:
+            line = caught_line(RESERVED, catching=want.get("catching"), folder=folder)
+        except RunLogError as exc:
+            line = type(exc).__name__
         expect(f"{case}: line", line == want["line"], line)
 
     passed = all(results)
