@@ -44,6 +44,7 @@ import subprocess
 import sys
 import tempfile
 import tomllib
+import unicodedata
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
@@ -202,13 +203,14 @@ def _rel(path, root):
 
 
 def working_trees(root):
-    """The repository's own top folder and every worktree git lists for it."""
+    """The repository's own top folder and every worktree git lists for it; None
+    when git cannot be run, so the worktree check cannot be made."""
     tops = [root]
     try:
         out = subprocess.run(["git", "worktree", "list", "--porcelain"], cwd=root,
                              capture_output=True, text=True, timeout=30)
     except (OSError, subprocess.SubprocessError):
-        return tops
+        return None
     if out.returncode == 0:
         tops += [os.path.realpath(line[len("worktree "):])
                  for line in out.stdout.splitlines() if line.startswith("worktree ")]
@@ -220,6 +222,8 @@ def inside_repository(folder, root):
     git's own answer, never by path text."""
     real = os.path.realpath(folder)
     tops = working_trees(root)
+    if tops is None:
+        return None  # cannot tell: the caller refuses
     if runlog.repo_root(real) in tops:
         return True
     here = real
@@ -243,7 +247,11 @@ def refuse_target(path, root, what):
     folder = os.path.dirname(os.path.abspath(path))
     if not os.path.isdir(folder):
         return f"{what}: its folder does not exist"
-    if inside_repository(folder, root):
+    inside = inside_repository(folder, root)
+    if inside is None:
+        return (f"{what}: git cannot be run here, so whether its folder lies inside a"
+                " worktree of the repository cannot be told; nothing is written")
+    if inside:
         return (f"{what}: its folder lies inside the repository that holds the tool, or"
                 " one of its worktrees; extracted text is private and never lands in"
                 " the public tree")
@@ -257,15 +265,29 @@ def refuse_targets(out, times, root):
             why = refuse_target(path, root, what)
             if why:
                 return why
-    if times:
-        a, b = os.path.abspath(out), os.path.abspath(times)
-        try:
-            same_folder = os.path.samefile(os.path.dirname(a), os.path.dirname(b))
-        except OSError:
-            same_folder = os.path.dirname(a) == os.path.dirname(b)
-        if same_folder and os.path.basename(a).casefold() == os.path.basename(b).casefold():
-            return "--out and --times name the same file; nothing is written"
+    if times and same_file(out, times):
+        return "--out and --times name the same file; nothing is written"
     return None
+
+
+def same_file(a, b):
+    """One file by identity, not by name: the folders by samefile, the names
+    folded to one Unicode form (composed and decomposed are one name on some
+    file systems) and to one letter case; samefile when either exists."""
+    a, b = os.path.realpath(os.path.abspath(a)), os.path.realpath(os.path.abspath(b))
+    if os.path.exists(a) or os.path.exists(b):
+        try:
+            return os.path.samefile(a, b)
+        except OSError:
+            pass
+    try:
+        same_folder = os.path.samefile(os.path.dirname(a), os.path.dirname(b))
+    except OSError:
+        same_folder = os.path.dirname(a) == os.path.dirname(b)
+
+    def name(p):
+        return unicodedata.normalize("NFC", os.path.basename(p)).casefold()
+    return same_folder and name(a) == name(b)
 
 
 def extract(records):
@@ -445,30 +467,45 @@ def run(records, out, times, planted, no_log, quiet=False):
         print(f"refused · {why}")
         return 2
     result = extract(records)
-    path, kind = None, "planted" if planted else "real"
+    path, kind, made = None, "planted" if planted else "real", []
+
+    def give_up(why):
+        """One line under could not see, exit 2, nothing left written, no row."""
+        for p in made:
+            try:
+                os.remove(p)
+            except OSError:
+                pass
+        result["could_not"].append(why)
+        result["counts"]["cant_read"] += 1
+        if not quiet:
+            print(f"can't read · {why}")
+            for line in report(result):
+                print(line)
+        return 2  # never a crash, never 1
+
+    # the outputs first, written and closed; the row only after them
+    try:
+        for target, body in ((out, words_file), (times, times_file)):
+            if target:
+                with open(target, "x", encoding="utf-8") as fh:
+                    made.append(target)
+                    fh.write(body(result))
+    except OSError as exc:
+        return give_up(f"the output could not be written ({type(exc).__name__}:"
+                       f" {exc.strerror or exc}); nothing was logged and nothing written")
     if not no_log:
-        # the row first: a refused row leaves nothing written and reads can't read
         try:
             path = runlog.write(TOOL, OWN_FILES, kind, planted or "", "person",
                                 result["read"], [], dict(result["counts"]), [],
                                 result["could_not"])
-        except runlog.RunLogError as exc:
-            refused = (f"the run log refused this run's row ({type(exc).__name__}: {exc});"
-                       " nothing was logged and nothing written" +
-                       ("; a run on fixtures is a plant: give --planted"
-                        if kind == "real" else ""))
-            result["could_not"].append(refused)
-            result["counts"]["cant_read"] += 1
-            if not quiet:
-                print(f"can't read · {refused}")
-                for line in report(result):
-                    print(line)
-            return 2  # never a crash, never 1
-    with open(out, "x", encoding="utf-8") as fh:
-        fh.write(words_file(result))
-    if times:
-        with open(times, "x", encoding="utf-8") as fh:
-            fh.write(times_file(result))
+        except (runlog.RunLogError, OSError) as exc:
+            detail = exc.strerror if isinstance(exc, OSError) and exc.strerror else exc
+            return give_up(f"the run log refused this run's row ({type(exc).__name__}:"
+                           f" {detail}); nothing was logged and nothing written" +
+                           ("; a run on fixtures is a plant: give --planted"
+                            if kind == "real" and isinstance(exc, runlog.RunLogError)
+                            else ""))
     if not quiet:
         for line in report(result):
             print(line)
@@ -480,6 +517,21 @@ def run(records, out, times, planted, no_log, quiet=False):
 # ---------------------------------------------------------------- self-test
 
 TESTS = os.path.join(HERE, "tests", "extract")
+
+
+def log_folder(path):
+    """For a self-test case: the run log writes to a scratch folder, never runs/."""
+    import contextlib
+
+    @contextlib.contextmanager
+    def pointed():
+        saved = runlog.default_folder
+        runlog.default_folder = lambda files=None: path
+        try:
+            yield
+        finally:
+            runlog.default_folder = saved
+    return pointed()
 
 
 def selftest(no_log):
@@ -510,7 +562,15 @@ def selftest(no_log):
                         continue
                     before = [p and os.path.exists(p) and open(p, "rb").read()
                               for p in (out, times)]
-                    if scratch_root:  # a scratch repository and its worktree
+                    if scratch_root == "no-git":  # git off the PATH: cannot tell, refuse
+                        saved_path = os.environ.get("PATH", "")
+                        os.environ["PATH"] = ""
+                        try:
+                            why = refuse_targets(out, times, root)
+                        finally:
+                            os.environ["PATH"] = saved_path
+                        printed, code = f"refused · {why}" if why else "", 2 if why else 0
+                    elif scratch_root:  # a scratch repository and its worktree
                         why = refuse_targets(out, times, scratch_root)
                         printed, code = f"refused · {why}" if why else "", 2 if why else 0
                     else:
@@ -523,6 +583,35 @@ def selftest(no_log):
                     expect(f"{label}: {name} refused for its reason, nothing written",
                            code == 2 and before == after and reason in printed,
                            printed.strip() or f"exit {code}")
+                continue
+            if mode == "unwritable":
+                for name in want["targets"]:
+                    runs = os.path.join(tmp, f"runs-{name}")
+                    locked = os.path.join(tmp, f"locked-{name}")
+                    os.makedirs(runs)
+                    os.makedirs(locked)
+                    out = os.path.join(tmp if name == "runs-folder" else locked,
+                                       f"{name}-typed.txt")
+                    os.chmod(runs if name == "runs-folder" else locked, 0o555)
+                    try:
+                        if os.access(runs if name == "runs-folder" else locked, os.W_OK):
+                            skipped.append(f"{label}: {name}: a locked folder is writable"
+                                           " here (run as an administrator?)")
+                            print(f"skip {label}: {name}: cannot be built here")
+                            continue
+                        buf = io.StringIO()
+                        with contextlib.redirect_stdout(buf), log_folder(runs):
+                            code = run(records, out, None, "selftest", False)
+                        printed = buf.getvalue()
+                        rows = os.listdir(runs)
+                        expect(f"{label}: {name}: one line, exit 2, no row, nothing written",
+                               code == 2 and not rows and not os.path.exists(out) and
+                               "could not see:" in printed and "Error" in printed,
+                               printed.strip().splitlines()[0] if printed.strip() else
+                               f"exit {code}")
+                    finally:
+                        os.chmod(runs, 0o755)
+                        os.chmod(locked, 0o755)
                 continue
             if mode == "real-run":
                 # a person's real run, logging on, over fixtures: the run log refuses
@@ -605,6 +694,14 @@ def refusal_targets(targets, tmp, root):
         elif name == "same-path-other-case":
             out.append((name, os.path.join(tmp, "Same-Case.txt"),
                         os.path.join(tmp, "same-case.txt"), "name the same file", None))
+        elif name == "same-path-composed-decomposed":
+            composed = unicodedata.normalize("NFC", "FIXTURE-caf\u00e9.txt")
+            decomposed = unicodedata.normalize("NFD", "FIXTURE-caf\u00e9.txt")
+            out.append((name, os.path.join(tmp, composed), os.path.join(tmp, decomposed),
+                        "name the same file", None))
+        elif name == "no-git":
+            out.append((name, os.path.join(tmp, "no-git-typed.txt"), None,
+                        "git cannot be run here", "no-git"))
         elif name == "inside":
             out.append((name, os.path.join(root, "FIXTURE-extracted.txt"), None, inside, None))
         elif name == "link":
@@ -613,8 +710,9 @@ def refusal_targets(targets, tmp, root):
                 os.symlink(root, link)
             out.append((name, os.path.join(link, "FIXTURE-extracted.txt"), None, inside, None))
         elif name == "case":
-            flipped = os.path.join(os.path.dirname(root), os.path.basename(root).swapcase())
-            if os.path.isdir(flipped) and os.path.samefile(flipped, root):
+            # tools/ always has letters to flip, whatever the clone's folder is named
+            flipped = os.path.join(root, "TOOLS")
+            if os.path.isdir(flipped) and os.path.samefile(flipped, os.path.join(root, "tools")):
                 out.append((name, os.path.join(flipped, "FIXTURE-extracted.txt"), None,
                             inside, None))
             else:

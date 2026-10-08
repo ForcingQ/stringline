@@ -624,14 +624,36 @@ def selftest(no_log):
             want = tomllib.load(fh)
         pages = sorted(os.path.join(folder, f) for f in os.listdir(folder) if f.endswith(".md"))
         words = os.path.join(folder, want.get("words", "words.txt"))
-        if want.get("mode") == "real-run":
-            # a person's real run, logging on, over fixture pages: the run log
-            # refuses the row, and the run must read can't check, exit 2
+        if want.get("mode") in ("real-run", "unwritable-log"):
+            # a person's run, logging on, over fixture pages. real-run: the run log
+            # refuses a real row that read fixtures. unwritable-log: the log folder
+            # (a scratch folder, never runs/) cannot be written. Either reads can't
+            # check, one line, no crash; exit 1 only when a quote is absent.
             import contextlib
             import io
+            import tempfile
             buf = io.StringIO()
-            with contextlib.redirect_stdout(buf):
-                code = main(pages + ["--words", words])
+            with tempfile.TemporaryDirectory() as tmp:
+                locked = os.path.join(tmp, "runs")
+                os.makedirs(locked)
+                saved = runlog.default_folder
+                if want["mode"] == "unwritable-log":
+                    os.chmod(locked, 0o555)
+                    runlog.default_folder = lambda files=None: locked
+                try:
+                    if want["mode"] == "unwritable-log" and os.access(locked, os.W_OK):
+                        print(f"skip {case}: a locked folder is writable here")
+                        os.chmod(locked, 0o755)
+                        continue
+                    extra = ["--planted", "selftest"] if want["mode"] == "unwritable-log" else []
+                    with contextlib.redirect_stdout(buf):
+                        code = main(pages + ["--words", words] + extra)
+                    rows = os.listdir(locked)
+                finally:
+                    runlog.default_folder = saved
+                    os.chmod(locked, 0o755)
+            if rows:
+                code = "a row was written"
             lines = buf.getvalue().splitlines()
             ok = code == want["exit"] and all(any(n in line for line in lines)
                                               for n in want.get("contains", []))
@@ -706,17 +728,21 @@ def main(argv):
         try:
             path = runlog.write(TOOL, OWN_FILES, kind, args.planted or "", "person", read,
                                 compared, row_outcomes(counts), caught, could_not)
-        except runlog.RunLogError as exc:
-            refused = (f"the run log refused this run's row ({type(exc).__name__}: {exc});"
+        except (runlog.RunLogError, OSError) as exc:
+            detail = exc.strerror if isinstance(exc, OSError) and exc.strerror else exc
+            refused = (f"the run log refused this run's row ({type(exc).__name__}: {detail});"
                        " nothing was logged" + ("; a run on fixtures is a plant: give"
-                                                " --planted" if kind == "real" else ""))
+                                                " --planted" if kind == "real" and
+                                                isinstance(exc, runlog.RunLogError) else ""))
             counts["cant_check"] += 1
             print(f"CAN'T CHECK · {refused}")
             could_not.append(refused)
     for line in summary(counts, read, compared, could_not):
         print(line)
     if refused:
-        return 2  # the run is a can't tell: never a crash, never 1
+        # never a crash: an absent quote still exits 1 (the spec's rule, even
+        # when others could not be checked), else the refusal is a can't tell, 2
+        return exit_code(counts)
     if path:
         print(f"logged: {shown_path(path)} ({kind})")
     return exit_code(counts)

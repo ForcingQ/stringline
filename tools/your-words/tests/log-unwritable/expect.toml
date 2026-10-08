@@ -1,0 +1,4 @@
+# a run log folder that cannot be written: one line, can't check, exit 2, no crash, no row
+mode = "unwritable-log"
+exit = 2
+contains = ["CAN'T CHECK · the run log refused this run's row (PermissionError"]

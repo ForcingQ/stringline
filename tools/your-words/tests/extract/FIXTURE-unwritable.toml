@@ -1,0 +1,5 @@
+# an output folder that cannot be written, and a run log folder that cannot be
+# written: one line under could not see, exit 2, no row, nothing left written
+mode = "unwritable"
+records = ["FIXTURE-string.jsonl"]
+targets = ["out-folder", "runs-folder"]
