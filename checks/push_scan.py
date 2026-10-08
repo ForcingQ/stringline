@@ -39,7 +39,9 @@ comments; an empty list is CAN'T TELL.
 Read as text: a file with a text extension is decoded as UTF-8, and also as UTF-16 in both byte
 orders when it carries a mark or NUL bytes, every successful reading scanned; one that decodes
 no way is CAN'T TELL. Any other file: UTF-16 when it carries a mark, else UTF-8 with replacement
-when its first 8,000 bytes hold no NUL (git's own rule), else counted by name as binary.
+when its first 8,000 bytes hold no NUL (git's own rule), else counted by name as binary. A blob
+is read once per way of reading it (the text-extension rule, the no-extension rule), whatever
+names it sits under; a bare blob a ref names has no name and is read by the no-extension rule.
 Exclusions (--tree, --history, --prepush): exactly the paths named in
 checks/tests/push_scan/MANIFEST, name and content; in --history and --prepush each commit is
 read against the MANIFEST as it was in that commit. An entry naming anything but the sample list
@@ -134,6 +136,11 @@ def readings(name, data):
     return [], "binary"
 
 
+def reading_kind(name):
+    """The two ways a blob can be read: by the text-extension rule or the no-extension rule."""
+    return "text" if os.path.splitext(name)[1].lower() in TEXT_EXT else "other"
+
+
 class Scan:
     """Collects hits, counts and what could not be read, for one run."""
 
@@ -174,6 +181,18 @@ class Scan:
             self.text += 1
             for t in texts:
                 self.scan_text(t, where)
+
+
+def git_rc(args, cwd):
+    """Run git where a non-zero exit is an answer, not a failure; a warning on exit 0 is still
+    CAN'T TELL. Returns the exit code and standard output."""
+    try:
+        p = subprocess.run(["git"] + args, cwd=cwd, capture_output=True)
+    except OSError as e:
+        raise CannotLook(f"git could not run: {e}")
+    if p.returncode == 0 and p.stderr.strip():
+        raise CannotLook(f"git {args[0]} warned: {p.stderr.decode('utf-8', 'replace').splitlines()[0]}")
+    return p.returncode, p.stdout.decode("utf-8", "replace").strip()
 
 
 def git(args, cwd, data=None):
@@ -266,9 +285,10 @@ def scan_tree(repo, store, treeish, scan, state, label):
         if t == "commit":
             scan.submodules += 1
             continue
-        if boid in state["blobs"]:
+        key = (boid, reading_kind(path))  # one blob, read once per way of reading it
+        if key in state["blobs"]:
             continue
-        state["blobs"].add(boid)
+        state["blobs"].add(key)
         scan.scan_bytes(path, store.read(boid)[1], f"{label}:{path}")
 
 
@@ -285,22 +305,26 @@ def scan_object(repo, store, oid, scan, state):
     typ, data = store.read(oid)
     if typ == "commit":
         return oid
-    if oid in state["objects"]:
-        return None
+    seen = oid in state["objects"]  # contents are read once; a line's range never depends on it
     state["objects"].add(oid)
     if typ == "tag":
-        scan.scan_text(data.decode("utf-8", "replace"), f"tag {oid[:12]}")
-        state["tags"] += 1
+        if not seen:
+            scan.scan_text(data.decode("utf-8", "replace"), f"tag {oid[:12]}")
+            state["tags"] += 1
         m = re.search(rb"^object ([0-9a-f]+)$", data, re.M)
         if not m:
             raise CannotLook(f"tag {oid[:12]} names no object")
         return scan_object(repo, store, m.group(1).decode(), scan, state)
+    if seen:
+        return None
     state["other"] += 1
     if typ == "tree":
         scan_tree(repo, store, oid, scan, state, f"tree {oid[:12]}")
     elif typ == "blob":
-        if oid not in state["blobs"]:
-            state["blobs"].add(oid)
+        # a bare blob has no name: it is read as a file with no extension (UTF-16 by mark, else
+        # UTF-8 with replacement when no NUL in its first 8,000 bytes, else counted as binary)
+        if (oid, "other") not in state["blobs"]:
+            state["blobs"].add((oid, "other"))
             scan.scan_bytes("", data, f"blob {oid[:12]}")
     else:
         raise CannotLook(f"object {oid[:12]} is of a kind not read: {typ}")
@@ -330,11 +354,7 @@ def mode_tree(list_path, list_name):
             with open(man, encoding="utf-8", errors="replace") as f:
                 excluded = parse_manifest(f.read(), scan, MANIFEST_REL)
         commits = 0
-        probe = subprocess.run(["git", "rev-parse", "--verify", "-q", "HEAD"], cwd=root,
-                               capture_output=True)
-        if probe.stderr.strip():
-            raise CannotLook(f"git rev-parse warned: {probe.stderr.decode('utf-8', 'replace').splitlines()[0]}")
-        if probe.returncode == 0:
+        if git_rc(["rev-parse", "--verify", "-q", "HEAD"], root)[0] == 0:
             raw = git(["cat-file", "commit", "HEAD"], root)
             scan.scan_text(raw.decode("utf-8", "replace"), "commit HEAD")
             commits = 1
@@ -476,12 +496,10 @@ def mode_prepush(terms, list_name):
                 continue  # a blob, a tree, or a tag chain ending at one: scanned above
             base = None
             if rid != ZERO:
-                held = subprocess.run(["git", "cat-file", "-e", rid], cwd=repo, capture_output=True)
-                if held.returncode != 0:
+                if git_rc(["cat-file", "-e", rid], repo)[0] != 0:
                     raise CannotLook(f"the remote's id {rid[:12]} for {rref} is not held here")
-                peeled = subprocess.run(["git", "rev-parse", "--verify", "-q", rid + "^{commit}"],
-                                        cwd=repo, capture_output=True)
-                base = peeled.stdout.decode().strip() if peeled.returncode == 0 else None
+                rc, out = git_rc(["rev-parse", "--verify", "-q", rid + "^{commit}"], repo)
+                base = out if rc == 0 else None
             rng = [f"{base}..{target}"] if base else [target]
             for oid in git(["rev-list"] + rng, repo).decode().split():
                 if oid in done:
@@ -719,6 +737,60 @@ def selftest():
             expect("other", f"{label} --prepush", ["--prepush"], 1, repo, f"{ref} {oid} {ref} {ZERO}\n")
             expect("other", f"{label} --history", ["--history", "."], 1, repo)
 
+        print("-- one blob, two names: read once per way of reading it")
+        same = fixture("case-same-bytes.dat", binary=True)
+        repo = new_repo(base, "same-bytes.repo")
+        put(repo, "FIXTURE-a.dat", same)
+        sg(repo, "add", "FIXTURE-a.dat")  # both names in the one commit
+        tip = commit_file(repo, "FIXTURE-b.md", same, "The same bytes under two names")
+        expect("other", "case-same-bytes.dat at FIXTURE-a.dat and FIXTURE-b.md --files",
+               ["--files", "FIXTURE-a.dat", "FIXTURE-b.md"], 1, repo)
+        expect("other", "case-same-bytes.dat, two names --tree", ["--tree"], 1, repo)
+        expect("other", "case-same-bytes.dat, two names --prepush", ["--prepush"], 1, repo, new_ref(tip))
+        expect("other", "case-same-bytes.dat, two names --history", ["--history", "."], 1, repo)
+
+        print("-- each pre-push line ranges its own commits, whatever was read before it")
+        repo = new_repo(base, "order-blob.repo")
+        commit_file(repo, "notes.txt", clean, "Start the notes")
+        blob = blob_of(repo, "case-same-bytes.dat")
+        sg(repo, "update-ref", "refs/tags/nul-blob", blob)
+        sg(repo, "checkout", "-q", "-b", "only-md")
+        tip = commit_file(repo, "FIXTURE-only.md", same, "The bytes as a page")
+        tag_line = f"refs/tags/nul-blob {blob} refs/tags/nul-blob {ZERO}\n"
+        branch_line = new_ref(tip, "refs/heads/only-md")
+        expect("other", "a tag at the blob, then the branch holding it as .md", ["--prepush"], 1,
+               repo, tag_line + branch_line)
+        expect("other", "the branch, then the tag", ["--prepush"], 1, repo, branch_line + tag_line)
+        repo = new_repo(base, "order-tag.repo")
+        commit_file(repo, "draft.txt", fixture("plant-12-removed.txt"), "Add a draft")
+        sg(repo, "rm", "-q", "draft.txt")
+        sg(repo, "commit", "-q", "-m", "Remove the draft")
+        old = sg(repo, "rev-parse", "HEAD")
+        commit_file(repo, "notes.txt", clean, "More notes")
+        sg(repo, "tag", "-a", "-m", fixture("control-clean.txt"), "one", "HEAD")
+        tag = sg(repo, "rev-parse", "one")
+        update = f"refs/tags/a {tag} refs/tags/a {old}\n"
+        fresh = f"refs/tags/b {tag} refs/tags/b {ZERO}\n"
+        expect("other", "one tag under two refs, the update first", ["--prepush"], 1, repo, update + fresh)
+        expect("other", "one tag under two refs, the new ref first", ["--prepush"], 1, repo, fresh + update)
+
+        print("-- a bare blob is read as a file with no extension, and counted when binary")
+        repo = new_repo(base, "bare.repo")
+        commit_file(repo, "notes.txt", clean, "Start the notes")
+        blob = blob_of(repo, "case-utf16be-nomark.txt")
+        sg(repo, "update-ref", "refs/tags/bare", blob)
+        expect("other", "case-utf16be-nomark.txt as a bare blob --prepush (binary, counted)",
+               ["--prepush"], 0, repo, f"refs/tags/bare {blob} refs/tags/bare {ZERO}\n",
+               grep="1 binary counted")
+
+        print("-- every git call in --prepush reads standard error")
+        repo = new_repo(base, "prepush-warning.repo")
+        old = commit_file(repo, "notes.txt", clean, "Start the notes")
+        tip = commit_file(repo, "more.txt", clean, "More notes")
+        sg(repo, "update-ref", "refs/heads/" + old, tip)  # a branch named like an id: git warns
+        expect("other", "an update whose remote id is also a branch name", ["--prepush"], 2, repo,
+               f"refs/heads/main {tip} refs/heads/main {old}\n", grep="warned")
+
         print("-- a git warning on exit 0 is can't tell")
         repo = new_repo(base, "warning.repo")
         tip = commit_file(repo, "notes.txt", clean, "Start the notes")
@@ -752,6 +824,14 @@ def selftest():
         commit_file(clone, "plant-01-tip.txt", fixture("plant-01-tip.txt", True), "Add a note")
         p2 = subprocess.run(["git", "push", "-q", "origin", "main"], cwd=clone, env=scratch_env(),
                             capture_output=True)
+        put(clone, "FIXTURE-a.dat", fixture("case-same-bytes.dat", binary=True))
+        sg(clone, "add", "FIXTURE-a.dat")
+        commit_file(clone, "FIXTURE-b.md", fixture("case-same-bytes.dat", binary=True), "Same bytes")
+        p4 = subprocess.run(["git", "push", "-q", "origin", "HEAD:refs/heads/same-bytes"], cwd=clone,
+                            env=scratch_env(), capture_output=True)
+        same_refused = p4.returncode != 0 and subprocess.run(
+            ["git", "rev-parse", "--verify", "-q", "refs/heads/same-bytes"], cwd=remote,
+            env=scratch_env(), capture_output=True).returncode != 0
         object_refused = []
         for label, make in object_cases:
             ref, oid = make(clone)
@@ -763,9 +843,11 @@ def selftest():
         remote_tip = sg(remote, "rev-parse", "main")
         clean_ok = p1.returncode == 0
         refused = p2.returncode != 0 and remote_tip != sg(clone, "rev-parse", "HEAD")
-        results["other"] += [clean_ok, refused] + object_refused
+        results["other"] += [clean_ok, refused, same_refused] + object_refused
         print(f"{'ok  ' if clean_ok else 'FAIL'} · hook: a clean push goes through")
         print(f"{'ok  ' if refused else 'FAIL'} · hook: a push carrying a sample word is refused")
+        print(f"{'ok  ' if same_refused else 'FAIL'} · hook: a push of case-same-bytes.dat at"
+              " FIXTURE-a.dat and FIXTURE-b.md is refused")
         for (label, _), ok in zip(object_cases, object_refused):
             print(f"{'ok  ' if ok else 'FAIL'} · hook: a push of {label} is refused")
     finally:

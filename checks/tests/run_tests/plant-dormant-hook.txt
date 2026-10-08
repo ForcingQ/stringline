@@ -1,0 +1,3 @@
+#!/bin/sh
+# A dormant fixture hook, not executable until something arms it.
+exit 0

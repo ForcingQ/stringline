@@ -5,7 +5,9 @@ What it compares: each check's printed state (its one line, opening GREEN, RED o
 against the exit code it gave (0, 1, 2). A check that is missing, crashes, prints nothing, prints
 more than one line, or whose line and exit code disagree is CAN'T TELL, never green. Exit 0 is
 never trusted alone: anything on standard error with exit 0 is CAN'T TELL, and a line must open
-with exactly `GREEN · `, `RED: ` or `CAN'T TELL: `.
+with exactly `GREEN · `, `RED: ` or `CAN'T TELL: ` and say something after it. A traceback
+on standard error is a crash only with a non-zero exit and no honest line: a check that prints
+its state and exits with it has not crashed.
 How it is fired: on every push and pull request by .github/workflows/checks.yml, and by hand,
 `python3 checks/run_all.py`. It reports; nothing merges or refuses on it.
 The failure that earned it: a correct check that nothing runs, the most repeated gap in the
@@ -54,16 +56,19 @@ def one(root, number, name, rel, args):
         return f"CAN'T TELL: {rel} could not run: {e} {tag}", 2
     lines = [l for l in p.stdout.splitlines() if l.strip()]
     err = p.stderr.strip().splitlines()
-    if p.returncode != 0 and err and "Traceback" in p.stderr:
+    if p.returncode == 0 and err:
+        return f"CAN'T TELL: {rel} exited 0 with standard error: {err[0]} {tag}", 2
+    line = lines[0] if len(lines) == 1 else ""
+    state = next((s for s, opening in OPENINGS.items()
+                  if line.startswith(opening) and line[len(opening):].strip()), None)
+    if state is not None and STATES.get(p.returncode) == state:
+        return f"{line} {tag}", p.returncode  # its state, printed and exited with: not a crash
+    if p.returncode != 0 and "Traceback (most recent call last):" in p.stderr:
         return f"CAN'T TELL: {rel} crashed: {err[-1]} {tag}", 2
     if not lines:
         return f"CAN'T TELL: {rel} printed nothing (exit {p.returncode}) {tag}", 2
     if len(lines) > 1:
         return f"CAN'T TELL: {rel} printed {len(lines)} lines, not one (exit {p.returncode}) {tag}", 2
-    if p.returncode == 0 and err:
-        return f"CAN'T TELL: {rel} exited 0 with standard error: {err[0]} {tag}", 2
-    line = lines[0]
-    state = next((s for s, opening in OPENINGS.items() if line.startswith(opening)), None)
     if state is None or STATES.get(p.returncode) != state:
         return (f"CAN'T TELL: {rel} printed {state or 'no state'} and exited {p.returncode}:"
                 f" they disagree {tag}"), 2
@@ -108,6 +113,10 @@ def selftest():
          [g, g, g, "plant-stderr-on-green.py", g], 2, (3, "exited 0 with standard error")),
         ("check 5 opens GREENISH: plant-greenish.py", [g, g, g, g, "plant-greenish.py"], 2,
          (4, "no state")),
+        ("check 1 prints an honest red after a handled traceback: plant-red-after-traceback.py",
+         ["plant-red-after-traceback.py", g, g, g, g], 1, (0, "RED: fixture: a planted fault")),
+        ("check 2 prints a bare green opening: plant-bare-green.py", [g, "plant-bare-green.py", g, g, g],
+         2, (1, "no state")),
         ("red outranks can't tell: plant-red.py beside a missing check",
          ["plant-red.py", g, None, g, g], 1, (0, "RED: fixture")),
     ]

@@ -34,3 +34,4 @@ checks/tests/push_scan/plant-15-tag.txt
 checks/tests/push_scan/twin-list-empty.txt
 checks/tests/push_scan/case-nested-tag.txt
 checks/tests/push_scan/case-tag-of-blob.txt
+checks/tests/push_scan/case-same-bytes.dat

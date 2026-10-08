@@ -4,7 +4,7 @@
 What it compares: each test's exit code against its last line (`selftest: PASS` or
 `selftest: FAIL`); every fixtures folder against the tests found; the tree's state (`git
 status --porcelain --ignored --untracked-files=all`) and a fingerprint of the hooks folder
-(`git rev-parse --git-path hooks`: names, sizes, hashes) before the run against after it.
+(`git rev-parse --git-path hooks`: names, sizes, modes, hashes) before the run against after it.
 How it is fired: on every push and pull request by .github/workflows/checks.yml, and by hand,
 `python3 checks/run_tests.py`. A test is a tracked file at checks/<name>.py, tools/<name>.py,
 tools/<id>/<main>.py or render.py whose text holds the flag --selftest (nothing under a tests/
@@ -20,7 +20,12 @@ What it does not prove: that a test tests the right thing (each one's fixtures a
 that). A write into a path that was already dirty before the run is not seen; the line says how
 many paths were dirty. Paths with a part named exactly __pycache__ are left out of the comparison,
 since an import may write them whatever a test does. Of .git/, only the hooks folder is watched;
-the rest of it is not. A crash is a non-zero exit whose standard error ends in a traceback.
+the rest of it is not. An edit to a file marked skip-worktree is not seen (git status hides it).
+A crash is a non-zero exit whose standard error ends in a traceback: after the last traceback
+header every line is indented except the last, the exception line. A crash whose exception
+message spans lines, or carries a note, ends in more than one unindented line; standard error
+cannot tell that from a line printed after a handled traceback, so it reads by its exit code
+(FAIL on exit 1, red either way).
 
 One line per test: `PASS · <file>`, `FAIL · <file> · <last line>` or `CAN'T TELL · <file> · <why>`
 (exit 2 or any other code, a crash, a timeout, no output, or a last line that disagrees with the
@@ -97,9 +102,20 @@ def orphans(tracked, tests):
 
 
 def status(root):
-    out = git(root, "status", "--porcelain", "--ignored", "--untracked-files=all")
-    return {l for l in out.splitlines()
-            if l.strip() and "__pycache__" not in re.split(r"[/ ]", l[3:])}
+    """Each path's status line, NUL-separated so a name holding a space is read whole; a path with
+    a part named exactly __pycache__ is left out."""
+    out = git(root, "status", "--porcelain", "-z", "--ignored", "--untracked-files=all")
+    recs, seen, skip = out.split("\0"), set(), False
+    for rec in recs:
+        if skip:
+            skip = False  # the source path of a rename or copy
+            continue
+        if len(rec) < 4:
+            continue
+        skip = rec[0] in "RC"
+        if "__pycache__" not in rec[3:].split("/"):
+            seen.add(rec)
+    return seen
 
 
 def hooks_print(root):
@@ -113,7 +129,9 @@ def hooks_print(root):
             try:
                 with open(full, "rb") as f:
                     digest = hashlib.sha256(f.read()).hexdigest()[:16]
-                seen.add((os.path.join(rel, os.path.relpath(full, folder)), os.path.getsize(full), digest))
+                st = os.lstat(full)
+                seen.add((os.path.join(rel, os.path.relpath(full, folder)), st.st_size,
+                          oct(st.st_mode & 0o7777), digest))
             except OSError as e:
                 raise CantTell(f"could not read {full}: {e.strerror}")
     return seen
@@ -208,6 +226,8 @@ def selftest():
     def tree(case, files):
         """A scratch repository holding the given fixtures at the given places, committed."""
         root = os.path.join(base, case)
+        later = {d: s for d, s in files.items() if d.startswith(".git/")}  # after init, mode 644
+        files = {d: s for d, s in files.items() if d not in later}
         for dest, src in files.items():
             os.makedirs(os.path.dirname(os.path.join(root, dest)) or root, exist_ok=True)
             shutil.copyfile(os.path.join(fix, src), os.path.join(root, dest))
@@ -215,6 +235,10 @@ def selftest():
             p = subprocess.run(["git"] + ident + args, cwd=root, env=env, capture_output=True)
             if p.returncode != 0:
                 raise RuntimeError(f"scratch git {args[0]}: {p.stderr!r}")
+        for dest, src in later.items():
+            os.makedirs(os.path.dirname(os.path.join(root, dest)), exist_ok=True)
+            shutil.copyfile(os.path.join(fix, src), os.path.join(root, dest))
+            os.chmod(os.path.join(root, dest), 0o644)
         return root
 
     one = lambda src: {"checks/case.py": src}
@@ -224,6 +248,16 @@ def selftest():
          "read by the exit code"),
         ("a failing test: plant-fail.py", one("plant-fail.py"), 1, "FAIL · checks/case.py"),
         ("a crash with exit 1: plant-crash.py", one("plant-crash.py"), 2, "crashed, exit 1"),
+        ("a crash whose exception carries a note, read by its exit code: plant-crash-with-note.py",
+         one("plant-crash-with-note.py"), 1, "FAIL · checks/case.py · fixture case: about to break"),
+        ("a test that arms a dormant hook: plant-arms-hook.py",
+         {"checks/case.py": "plant-arms-hook.py", ".git/hooks/pre-push": "plant-dormant-hook.txt"},
+         1, "the hooks folder changed during the run: .git/hooks/pre-push"),
+        ("a write into 'FIXTURE __pycache__/': plant-spaced-pycache.py",
+         one("plant-spaced-pycache.py"), 1, "FIXTURE __pycache__/left.txt"),
+        ("a named limit, a skip-worktree edit unseen: control-skip-worktree.py",
+         {"checks/case.py": "control-skip-worktree.py", "notes.txt": "control-skip-worktree-notes.txt"},
+         0, "PASS · checks/case.py"),
         ("a handled traceback, then an honest FAIL: plant-handled-traceback.py",
          one("plant-handled-traceback.py"), 1, "FAIL · checks/case.py · selftest: FAIL"),
         ("a test that installs a hook: plant-installs-hook.py", one("plant-installs-hook.py"), 1,
