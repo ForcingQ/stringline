@@ -17,8 +17,9 @@ The look is held beside the records in manual/look/: style.css is written into e
 head as one style block (its {fonts} token replaced by the page's own way to site/fonts/), and
 every file in manual/look/fonts/ is copied to site/fonts/ byte for byte. Refused, one line, exit
 2: a style block that is missing, empty or holds a closing style tag; a font the block names
-that is not there; a font file with no LICENSE-<face>.txt beside it, or no NOTICE.txt (a face
-never ships bare); a folder that cannot be read. And one gate over every read: a symbolic link
+that is not there; any file in the fonts folder, whatever its ending, with no
+LICENSE-<face>.txt beside it (the face is its name up to the first hyphen or full stop), or no
+NOTICE.txt (a face never ships bare); a folder that cannot be read. And one gate over every read: a symbolic link
 anywhere under manual/, the folder itself included, is refused, because a followed link could
 publish a file from elsewhere on the machine. Not seen by that gate: a hard link, which is a
 file like any other. Dot-files and
@@ -208,7 +209,6 @@ def markdown(body, depth=0):
 # ---- pages
 
 
-FONT_FILES = ('.ttf', '.otf', '.woff', '.woff2')
 FONTS_TOKEN = '{fonts}'  # in the style block, replaced by the page's own way to site/fonts/
 
 
@@ -239,7 +239,10 @@ def load_look(manual):
         raise RenderError(f'manual/look/fonts: cannot read ({e.strerror})')
     # a face never ships bare: each font file needs its face's licence file beside it and the
     # one-line notice that the fonts are under their own licence (the owner's ruling)
-    faces = sorted({n.split('-')[0] for n in fonts if n.lower().endswith(FONT_FILES)})
+    # every file here that is not a licence or the notice is taken as a font, whatever its
+    # ending: a list of font endings would let a face of another ending ship bare
+    faces = sorted({re.split(r'[-.]', n)[0] for n in fonts
+                    if n != 'NOTICE.txt' and not (n.startswith('LICENSE-') and n.endswith('.txt'))})
     for need in [f'LICENSE-{face}.txt' for face in faces] + (['NOTICE.txt'] if faces else []):
         if not fonts.get(need, b'').strip():
             raise RenderError(f'manual/look/fonts/{need}: a font ships without it')
@@ -486,6 +489,17 @@ def selftest_cases(case):
              and first_block('\n\n   \n\nreal words\r\nmore') .startswith('<p>real words')
              and first_block('\n \n') == '')
         case('the caught line is marked for the look', '<p class="caught">no real run yet</p>' in page_)
+        # the front page's use of first_block, on a room whose first block runs over three lines
+        long_first = os.path.join(tmp, 'long-first')
+        shutil.copytree(manual, long_first)
+        room_file = os.path.join(long_first, 'rooms', f'{BUILD_ROOM}.toml')
+        with open(room_file, encoding='utf-8') as f:
+            room_text = f.read()
+        with open(room_file, 'w', encoding='utf-8') as f:
+            f.write(room_text.replace("body = '''\n", "body = '''\nFIXTURE line one\nline two\nline three\n\n", 1))
+        flong = render(long_first, os.path.join(tmp, 'long-first-out'), stub)
+        case('the front page carries a room\'s first block whole when it runs over several lines',
+             '<p>FIXTURE line one\nline two\nline three</p></li>' in flong['site/index.html'])
         bare = os.path.join(tmp, 'bare')
         shutil.copytree(manual, bare)
         os.remove(os.path.join(bare, 'tools', 'card-released.toml'))
@@ -504,6 +518,16 @@ def selftest_cases(case):
                 ('a face with no licence file beside it',
                  lambda d: os.remove(os.path.join(d, 'look', 'fonts', sorted(
                      n for n in shipped if n.startswith('LICENSE-'))[0])), 'a font ships without it'),
+                ('a face of an ending no list names, with no licence file',
+                 lambda d: open(os.path.join(d, 'look', 'fonts', 'FIXTUREFACE-400.eot'), 'wb').write(b'fixture'),
+                 'LICENSE-FIXTUREFACE.txt: a font ships without it'),
+                ('a face file with no hyphen and no licence file',
+                 lambda d: open(os.path.join(d, 'look', 'fonts', 'FIXTUREMONO.ttf'), 'wb').write(b'fixture'),
+                 'LICENSE-FIXTUREMONO.txt: a font ships without it'),
+                ('a licence file that is white space',
+                 lambda d: open(os.path.join(d, 'look', 'fonts', sorted(
+                     n for n in shipped if n.startswith('LICENSE-'))[0]), 'w').write(' \n\t\n'),
+                 'a font ships without it'),
                 ('fonts with no notice of their own licence',
                  lambda d: os.remove(os.path.join(d, 'look', 'fonts', 'NOTICE.txt')),
                  'NOTICE.txt: a font ships without it'),
