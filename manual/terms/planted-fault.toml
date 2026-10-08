@@ -1,0 +1,3 @@
+id = "planted-fault"
+term = "a planted fault"
+body = "A fault put deliberately where a real one would arrive, to show that a check fires on it. A check is not trusted until it has."

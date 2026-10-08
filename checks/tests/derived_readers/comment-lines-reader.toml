@@ -1,0 +1,21 @@
+id = "claude"
+
+[[sections]]
+heading = "Fixture title"
+body = '''
+Fixture text under the title.
+'''
+
+[[sections]]
+heading = "Fixture section whose body opens like headings"
+body = '''
+### A fixture sub-heading
+
+    # a fixture shell comment
+    # and a second one
+    echo fixture
+'''
+
+[[sections]]
+heading = "Fixture last section"
+body = "Fixture text."

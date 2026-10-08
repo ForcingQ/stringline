@@ -1,0 +1,7 @@
+id = "tools"
+title = "Tools"
+body = '''
+One card per released tool: what it is, the first thing to do, [the one gotcha](#term:one-gotcha), and what it has caught.
+
+What it has caught is read from the tool's own run log, and counts real runs only, never [a planted fault](#term:planted-fault). A tool still being built has no card here; the build room names it as in progress.
+'''

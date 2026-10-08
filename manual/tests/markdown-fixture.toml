@@ -1,0 +1,11 @@
+id = "markdown-fixture"
+title = "Markdown fixture"
+body = '''
+A paragraph with *emphasis*, `inline <code> & *not emphasis*`, a [path link](INTENT.md) and a [term link](#term:lane).
+A second line of the same paragraph.
+
+- a list item
+- a list item with `code`
+
+Outside the subset, each written as it is: <b>raw & "html"</b> 'quoted', **strong**, # a heading, 1. a number.
+'''

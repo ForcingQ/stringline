@@ -1,0 +1,5 @@
+id = "link-plant"
+title = "Fixture: markup must not reach a link address"
+body = '''
+A [link with *marked* text](FIXTURE-*a*-b.md) whose address carries asterisks.
+'''

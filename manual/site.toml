@@ -1,0 +1,4 @@
+title = "stringline"
+owner = "Chad Wallace"
+limit = "The earlier work this recreates is not shown. That it mirrors that work is the owner's claim, dated. What you can check: whether each tool fires on its planted fault, and what its run log shows."
+rooms = ["tools", "build", "how-it-runs"]

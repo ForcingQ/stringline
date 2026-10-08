@@ -1,0 +1,10 @@
+id = "card-released"
+name = "Fixture released tool"
+status = "released"
+what = "A *fixture* tool, never a real one."
+first = "python3 tools/card-released/card_released.py <file>"
+gotcha = "It reads `stdin` only."
+earned_by = "A fixture failure, planted for the renderer's self-test."
+files = ["tools/card-released/card_released.py"]
+catching = ["exact", "absent"]
+verified_against = ""
