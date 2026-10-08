@@ -35,3 +35,7 @@ About the result
 ## 2026-10-08 · the tidy before the surface
 
 - *"Active use is also a form of review"*
+
+## 2026-10-08 · the surface
+
+- *"Clarity in communication is always important to maintain"*
