@@ -1,0 +1,3 @@
+id = "checker"
+term = "the checker"
+body = "The first tool. It compares each quote of a person's words against what that person typed, and says exact, corrected, absent or can't check."

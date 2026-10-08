@@ -1,0 +1,2 @@
+# the date is printed from the parsed time, never cut from the text
+line = "2026-10-05 a catch dated in the basic form"

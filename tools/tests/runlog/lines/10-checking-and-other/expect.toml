@@ -1,0 +1,3 @@
+catching = ["exact", "corrected", "absent", "cant_check"]
+# a zero count is still a checking run; an empty map is can't tell
+line = "1 real run, nothing caught yet · 2 other runs · 1 of them could not see everything · 1 run file could not be read"

@@ -1,0 +1,8 @@
+# Decisions · from 8 October 2026 · the build (the fourth session, S4)
+
+Continues [DECISIONS-2026-10-07-s1-to-s3b.md](DECISIONS-2026-10-07-s1-to-s3b.md); the front page is [DECISIONS.md](DECISIONS.md).
+
+## 2026-10-08 · the fourth working session (the build)
+
+45. **A text-extension file the push scanner cannot decode is read as UTF-8 with replacement and also as Latin-1, both readings scanned, counted in the scanner's line as "read with replacement", never can't tell.** The sentence in [SPEC-push-scanner.md](SPEC-push-scanner.md) changes accordingly, with a plant. *Why:* the owner's ruling. The first tool's lane committed and pushed a fixture that decodes no way (a non-UTF-8 typed-words file its own spec calls for) under a text extension; the live tree was fixed by renaming it, but five pushed commits still hold it, and history is never rewritten (the binding decision), so under the approved sentence the history scan would read can't tell for good and the sample hook would refuse a push of the merged main. Reading such a file two ways keeps the scanner looking (a private word in plain letters is still found; one spelled in letters neither reading recovers is the named limit, beside the look-alike table's) instead of blind.
+46. **The decisions file is split as the build log was: a one-screen front page listing one file per span of sessions, the numbers running on.** *Why:* the single file stood at 59 of 60 lines when #45 arrived; the third session's sequel had named the split as the next session's act.

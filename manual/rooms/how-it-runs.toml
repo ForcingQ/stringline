@@ -1,0 +1,7 @@
+id = "how-it-runs"
+title = "How it runs"
+body = '''
+How a working session opens and closes, and what waits for the owner's word, is [OPEN-PROTOCOL.md](OPEN-PROTOCOL.md). Each decision and its reason is [DECISIONS.md](DECISIONS.md). Those two files are the one text of how the work runs; this room points at them and does not copy them.
+
+The words below are the ones the record uses without stopping to explain them.
+'''
