@@ -1,0 +1,6 @@
+{
+  "hook_event_name": "Stop",
+  "session_id": "fixture-session",
+  "stop_hook_active": false,
+  "last_assistant_message": "Stopping on a checkable item.\nSTOP: YOURS #1"
+}

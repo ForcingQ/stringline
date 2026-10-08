@@ -1,0 +1,6 @@
+{
+  "hook_event_name": "Stop",
+  "session_id": "fixture-cap",
+  "stop_hook_active": false,
+  "last_assistant_message": "Still working on it."
+}
