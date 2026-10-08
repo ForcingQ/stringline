@@ -1,0 +1,10 @@
+id = "demo"
+name = "Demo"
+status = "released"
+what = "A demo tool."
+first = "python3 tools/demo/demo.py --help"
+gotcha = "None."
+earned_by = "A quote drifted from what was typed, and nothing noticed."
+files = ["tools/demo/demo.py"]
+catching = ["found"]
+verified_against = "0000000000000000000000000000000000000000"

@@ -1,0 +1,9 @@
+id = "wip-tool"
+name = "Work in progress"
+status = "building"
+what = "A demo tool."
+first = "python3 tools/wip-tool/wip_tool.py --help"
+gotcha = "None."
+earned_by = "A quote drifted from what was typed, and nothing noticed."
+files = []
+verified_against = ""

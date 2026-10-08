@@ -1,0 +1,4 @@
+id = "readme"
+sections = [
+  { heading = "A demo", body = "Plain.", note = "extra" },
+]

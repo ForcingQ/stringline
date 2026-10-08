@@ -1,0 +1,6 @@
+id = "build"
+title = "The build"
+body = """
+Read the [intent](INTENT.md), section [one](INTENT.md#intent). A [lane](#term:lane) runs alone.
+See [the site](https://example.invalid/) too.
+"""

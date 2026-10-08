@@ -1,0 +1,3 @@
+id = "markdown-fixture"
+title = "Fixture"
+body = "[a dangling link](NOWHERE.md) that check 2 must not read"
