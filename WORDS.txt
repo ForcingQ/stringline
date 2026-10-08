@@ -15,3 +15,5 @@ Publishing a line for every decision pulled house upkeep into a log meant for a 
 nothing this time
 
 nothing this time
+
+our tools first real catch what records I was keeping by hand, and the tool we are building would have caught it.  There is a difference between someone reading a spec and building from it.

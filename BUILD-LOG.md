@@ -13,3 +13,4 @@ Each entry is written by the session's AI lead at the close and read by the owne
 1. [2026-10-07 · the founding](BUILD-LOG-2026-10-07-s1-the-founding.md)
 2. [2026-10-07 · seeing and naming](BUILD-LOG-2026-10-07-s2-see-and-name.md)
 3. [2026-10-07 · map, order, spec](BUILD-LOG-2026-10-07-s3-map-order-spec.md)
+4. [2026-10-07 · specifying the four placed items](BUILD-LOG-2026-10-07-s3b-spec-the-placed-items.md)

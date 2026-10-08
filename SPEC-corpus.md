@@ -37,7 +37,7 @@
 - `python3 render.py` on the committed corpus writes `site/`, README.md and CLAUDE.md, and running it twice changes nothing (byte-identical).
 - Check 3 is green on the committed tree, red on a hand-edited README (fixture), red on an empty render (twin).
 - Every record parses; a fixture record with a key outside its list, and one with a dangling `#term:` link, each make check 2 red naming the file.
-- The markdown fixture renders every element of the subset, and an element outside it comes through escaped.
+- The markdown fixture renders every element of the subset, and an element outside it comes through escaped; `render.py --selftest` accepts `--no-log` and ignores it, and holds the flag `--selftest` in its text, so the test runner ([SPEC-workflow.md](SPEC-workflow.md)) finds and runs it.
 - The six terms and the limit line exist as records with the text above; the README's signature line reads the owner's name after regeneration.
 
 **Not proven by the above:** that the prose is clear (the stranger read at each close) or that the site looks finished (session 5).

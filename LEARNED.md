@@ -13,3 +13,7 @@ What I learn building this, recorded the session it lands, in my own words. One 
 ## 2026-10-07 · map, order, spec
 
 - *"nothing this time"*
+
+## 2026-10-07 · specifying the four placed items
+
+- *"our tools first real catch what records I was keeping by hand, and the tool we are building would have caught it.  There is a difference between someone reading a spec and building from it."*
