@@ -3,7 +3,7 @@ id = "readme"
 [[sections]]
 heading = "stringline"
 body = '''
-A public build, being founded. Nothing here can be installed yet.
+A public build, in progress. Two tools run from a clone; neither is released yet.
 '''
 
 [[sections]]
@@ -11,7 +11,7 @@ heading = "What it is"
 body = '''
 Three things, in one repository:
 
-- **A tool.** Small instruments recreated from my own way of working with AI agents, starting with one that checks every quote of a person's own words against what that person actually typed, and says exact, corrected, absent or can't check. Pulling the typed messages out of an AI session's record comes after it. Where a tool checks what an agent said, it says what it looked at, and says "can't tell" rather than "clean" when it cannot see.
+- **A tool.** Small instruments recreated from my own way of working with AI agents, starting with one that checks every quote of a person's own words against what that person actually typed, and says exact, corrected, absent or can't check. Its second half pulls the typed messages out of an AI session's record. Where a tool checks what an agent said, it says what it looked at, and says "can't tell" rather than "clean" when it cannot see.
 - **A build, told through its sessions and its code.** Built in public from the first commit: intent before anything, direction before code, work done by agents under written instructions, every spec reviewed by a separate reviewer (another AI agent, or a person) that did not write it, and a dated log of each decision and each wrong turn caught.
 - **A manual you walk.** A clean, structured surface: one card per released tool, a walk through the record, and how the work runs. It comes later, built from one source that also writes this README.
 
@@ -21,7 +21,7 @@ The full intent, in my words, is [INTENT.md](INTENT.md). Where any file here dis
 [[sections]]
 heading = "Where it stands"
 body = '''
-Founded on 7 October 2026. So far it holds the intent, the files that say how the work runs, four entries of the build log, the map of what depends on what ([MAP.md](MAP.md)), and the specification of what is built next ([SPEC.md](SPEC.md) and its nine parts). No tool exists yet; the first one, a checker for quotes of a person's own words with a second half that pulls those words out of a session's record, and the second, a checker for a finished list that also runs as a hook, are specified and approved, and are built in the next session. [WORDS.txt](WORDS.txt) already holds the owner's typed lines that the intent and LEARNED.md quote, one block per quoted span and nothing else, so the checker has real work from its first run; a reply he gave twice appears twice.
+Founded on 7 October 2026. It holds the intent, the files that say how the work runs, an entry of the build log for each session, the map of what depends on what ([MAP.md](MAP.md)), the specification ([SPEC.md](SPEC.md) and its nine parts), and what has been built from it: two tools, the five checks that guard the repository, and a workflow that runs every check and every self-test on each push. Both tools are marked `building`, not released. The first checks every quote of a person's own words against what that person typed, and its second half pulls those typed words out of an AI session's record; the second checks a finished list and also runs as a hook. I have run each on my own material, and each caught something. The first read two quotes in the intent as absent: both end in "…" where my message went on, and the build log says why. Its first real run also exposed a fault in the tool itself, which was fixed the same day. The second read one line of a closed list as malformed. To see the first tool work from a clone: `python3 tools/your-words/your_words.py --selftest --no-log` (Python 3.11 or later, and git). The look of the manual comes next, and nothing is released until I say so. [WORDS.txt](WORDS.txt) holds my typed lines that the intent and LEARNED.md quote, one block per quoted span and nothing else; a reply I gave twice appears twice.
 '''
 
 [[sections]]
