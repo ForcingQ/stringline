@@ -1,0 +1,2 @@
+# An empty word list: comments only, no entries.
+# The scanner must refuse it as can't tell.

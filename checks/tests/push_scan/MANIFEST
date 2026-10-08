@@ -1,0 +1,34 @@
+# Files the push scanner skips, by full repository path, in --tree, --history and --prepush.
+# Only the sample list and files under checks/tests/push_scan/ may be named here.
+checks/push-scan.sample.txt
+checks/tests/push_scan/MANIFEST
+checks/tests/push_scan/case-binary.bin
+checks/tests/push_scan/case-link-target.txt
+checks/tests/push_scan/case-manifest-outside.txt
+checks/tests/push_scan/case-nul-in-text.toml
+checks/tests/push_scan/case-undecodable.txt
+checks/tests/push_scan/case-utf16be-nomark.txt
+checks/tests/push_scan/control-clean.txt
+checks/tests/push_scan/control-near-miss.txt
+checks/tests/push_scan/fold-soft-hyphen.txt
+checks/tests/push_scan/fold-superscript.txt
+checks/tests/push_scan/fold-zwj.txt
+checks/tests/push_scan/list-comment-only.txt
+checks/tests/push_scan/list-w-alone.txt
+checks/tests/push_scan/list-w-inside.txt
+checks/tests/push_scan/plant-01-tip.txt
+checks/tests/push_scan/plant-02-path-pyxquemb.txt
+checks/tests/push_scan/plant-03-case.txt
+checks/tests/push_scan/plant-04-fullwidth.txt
+checks/tests/push_scan/plant-05-lookalike.txt
+checks/tests/push_scan/plant-06-zero-width.txt
+checks/tests/push_scan/plant-07-utf16.txt
+checks/tests/push_scan/plant-08-nul.txt
+checks/tests/push_scan/plant-09-message.txt
+checks/tests/push_scan/plant-10-author-email.txt
+checks/tests/push_scan/plant-11-committer.txt
+checks/tests/push_scan/plant-12-removed.txt
+checks/tests/push_scan/plant-13-stale-ref.txt
+checks/tests/push_scan/plant-14-merge.txt
+checks/tests/push_scan/plant-15-tag.txt
+checks/tests/push_scan/twin-list-empty.txt

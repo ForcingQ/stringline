@@ -1,0 +1,2 @@
+A plain line of ordinary text.
+Nothing here should match.

@@ -1,0 +1,9 @@
+# Sample word list for checks/push_scan.py. Every entry is an invented string that no one writes.
+# A real list stays private; this one exists so the scanner and its self-test run in public.
+# One entry per line, matched without regard to case; spaces inside an entry match literally.
+# An entry opening "w:" matches only as a whole word. A line opening "#" is a comment, so the
+# next word is named here and nowhere else in the list, and must never match:
+# vexlomrinth
+zorqvelt
+pyxquemb
+w:quodjinx

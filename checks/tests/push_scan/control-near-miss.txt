@@ -1,0 +1,4 @@
+Near misses, each sample word with one letter changed:
+zorqvekt
+pyxquemd
+quodjink
