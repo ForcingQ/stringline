@@ -1,0 +1,9 @@
+id = "ghost"
+name = "Demo"
+status = "building"
+what = "A demo tool."
+first = "python3 tools/ghost/ghost.py --help"
+gotcha = "None."
+earned_by = "A quote drifted from what was typed, and nothing noticed."
+files = []
+verified_against = ""

@@ -1,0 +1,21 @@
+#!/bin/sh
+# Sample pre-push hook for the push scanner (checks/push_scan.py): refuses a push that carries
+# any word on your list.
+#
+# To install it in your own repository:
+#   1. Fill in the two paths below: where push_scan.py is, and where your word list is.
+#      Keep your real list outside the repository it guards; a list of private words
+#      cannot be published.
+#   2. Copy this file to .git/hooks/pre-push in your repository.
+#   3. Make it executable: chmod +x .git/hooks/pre-push
+#
+# git hands the hook one line per pushed ref on standard input; the scanner reads them and
+# scans every commit the remote does not have yet. Exit 1 (a word found) and exit 2 (could
+# not look) both refuse the push.
+#
+# A hook can be skipped (git push --no-verify), so this guards your own pushes only. Before
+# publishing, scan the whole history as a second layer:
+#   python3 push_scan.py --history <your repository> --list <your word list>
+SCANNER="__PATH_TO_PUSH_SCAN_PY__"
+LIST="__PATH_TO_WORD_LIST__"
+exec python3 "$SCANNER" --prepush --list "$LIST"

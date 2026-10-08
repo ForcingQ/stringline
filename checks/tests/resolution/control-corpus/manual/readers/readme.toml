@@ -1,0 +1,4 @@
+id = "readme"
+sections = [
+  { heading = "A demo", body = "Start with [the intent](INTENT.md)." },
+]

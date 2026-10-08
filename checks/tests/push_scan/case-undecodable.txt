@@ -1,0 +1,1 @@
+Not UTF-8: café € and nothing else.

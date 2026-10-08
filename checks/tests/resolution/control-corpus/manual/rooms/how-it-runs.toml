@@ -1,0 +1,3 @@
+id = "how-it-runs"
+title = "How it runs"
+body = "Every [lane](#term:lane) has a finished list. The [shared module](tools/runlog.py) holds the code."

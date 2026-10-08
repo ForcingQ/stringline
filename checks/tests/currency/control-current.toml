@@ -1,0 +1,9 @@
+id = "demo"
+name = "Demo tool"
+status = "released"
+what = "A small tool used only by this check's self-test."
+first = "python3 tools/demo/demo.py"
+gotcha = "It does nothing."
+earned_by = "Nothing; it exists so the currency check has a card to read."
+files = ["tools/demo/demo.py"]
+verified_against = "{stamp}"
