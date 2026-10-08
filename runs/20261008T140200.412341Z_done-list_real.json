@@ -1,0 +1,24 @@
+{
+  "tool": "done-list",
+  "started": "2026-10-08T14:02:00.412341Z",
+  "kind": "real",
+  "planted_by": "",
+  "invoked_by": "person",
+  "read": [
+    "outside the repository"
+  ],
+  "compared_against": [
+    "outside the repository"
+  ],
+  "outcomes": {
+    "done": 10,
+    "not_done": 0,
+    "cant_tell": 0,
+    "malformed": 1
+  },
+  "caught": [
+    "#1 malformed (a backtick inside the command (a nested backtick, or a code span in the note after it))"
+  ],
+  "could_not": [],
+  "tool_version": "e646fdb0abdfc06fc9d11a10b7c8ada970e98eff"
+}
