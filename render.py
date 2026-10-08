@@ -10,8 +10,9 @@ the moment any of them differs from what this writes.
 
 It never invents text: everything it writes is a record's field, a list derived from the
 records, or a card's "what it has caught" line from tools/runlog.py (imported, never copied).
-The one exception is structure the spec names but gives no record: the card's field labels
-("What it is" and the rest, the intent's own words) and "in progress"; they live in this code.
+The one exception is structure the spec names but gives no record, kept in this code: four card
+labels are INTENT.md's words (what it is, the first thing to do, the one gotcha, what it has
+caught), "The failure that earned it" is SPEC.md's phrase, and "in progress" is SPEC-card.md's.
 In place, site/ is wholly derived and is replaced; under `--out <dir>` it writes only the files
 it renders and deletes nothing. Standard library only, Python 3.11 or later.
 Exit 0 on success, 2 when it cannot render (the reason on standard error, one line).
@@ -23,6 +24,7 @@ import shutil
 import sys
 import tempfile
 import tomllib
+import unicodedata
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 
@@ -38,12 +40,19 @@ REQUIRED = {
 READERS = (('readme', 'README.md'), ('claude', 'CLAUDE.md'))
 OWNER_TOKEN = '{owner}'  # in a reader body, replaced by site.toml's owner
 TERMS_ROOM, TOOLS_ROOM, BUILD_ROOM = 'how-it-runs', 'tools', 'build'  # set by SPEC-corpus/SPEC-card
-# Card labels: the intent's own words for the card's fields (structure, not record text).
+# Card labels (structure, not record text): INTENT.md's words, but earned_by's, which is SPEC.md's.
 CARD_FIELDS = (('what', 'What it is'), ('first', 'The first thing to do'),
                ('gotcha', 'The one gotcha'), ('earned_by', 'The failure that earned it'))
 CAUGHT_LABEL = 'What it has caught'
 IN_PROGRESS = 'in progress'
 ID = re.compile(r'[a-z0-9-]+')  # an id becomes a file name and an HTML id: nothing else gets in
+RESERVED_ROOMS = ('index',)  # a room called index would replace the front page
+
+
+def visible(text):
+    """True when text holds a character a reader can see: not white space, control or format."""
+    return isinstance(text, str) and any(
+        not unicodedata.category(ch).startswith(('Z', 'C')) for ch in text)
 
 
 class RenderError(Exception):
@@ -56,7 +65,7 @@ def load(path, kind, base):
         with open(path, 'rb') as f:
             rec = tomllib.load(f)
     except (OSError, tomllib.TOMLDecodeError) as e:
-        raise RenderError(f'{shown}: cannot read: {e}')
+        raise RenderError(f'{shown}: cannot read: {e.strerror if isinstance(e, OSError) else e}')
     missing = [k for k in REQUIRED[kind] if k not in rec]
     if missing:
         raise RenderError(f'{shown}: missing {", ".join(missing)}')
@@ -79,9 +88,14 @@ def load_corpus(manual):
     if not os.path.isfile(os.path.join(manual, 'site.toml')):
         raise RenderError(f'{os.path.relpath(manual, base)}: no site.toml')
     site = load(os.path.join(manual, 'site.toml'), 'site', base)
-    if not isinstance(site['owner'], str) or not site['owner'].strip():
+    if not visible(site['owner']):
         raise RenderError('manual/site.toml: owner is empty; the README signature needs a name')
     rooms = {r['id']: r for r in load_dir(manual, 'rooms', 'room')}
+    for rid, room in rooms.items():
+        if rid in RESERVED_ROOMS:
+            raise RenderError(f'manual/rooms/{rid}.toml: the room id {rid} is reserved for the front page')
+        if not visible(room['body']):
+            raise RenderError(f'manual/rooms/{rid}.toml: body has no visible text')
     for rid in site['rooms']:
         if rid not in rooms:
             raise RenderError(f'manual/site.toml: room {rid} has no record')
@@ -197,6 +211,8 @@ def render_files(corpus, caught=None):
     for c in cards:
         if c['status'] not in ('released', 'building'):
             raise RenderError(f'manual/tools/{c["id"]}.toml: status {c["status"]!r}')
+        if not visible(c['what']):
+            raise RenderError(f'manual/tools/{c["id"]}.toml: what has no visible text')
     released = [c for c in cards if c['status'] == 'released']
     building = [c for c in cards if c['status'] == 'building']
     if released and caught is None:
@@ -241,13 +257,20 @@ def reader_text(reader, owner, rid):
 
 def write(files, out, in_place):
     """In place, site/ is wholly derived and is replaced. Under --out, writes only its files."""
-    if in_place and os.path.isdir(os.path.join(out, 'site')):
-        shutil.rmtree(os.path.join(out, 'site'))
-    for rel, text in files.items():
-        path = os.path.join(out, rel)
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, 'w', encoding='utf-8', newline='\n') as f:
-            f.write(text)
+    site = os.path.join(out, 'site')
+    if os.path.exists(site) and not os.path.isdir(site):
+        raise RenderError('site: exists in the output folder and is not a folder')
+    try:
+        if in_place and os.path.isdir(site):
+            shutil.rmtree(site)
+        for rel, text in files.items():
+            path = os.path.join(out, rel)
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, 'w', encoding='utf-8', newline='\n') as f:
+                f.write(text)
+    except OSError as e:
+        raise RenderError(f'{os.path.relpath(e.filename, out) if e.filename else "output"}: '
+                          f'cannot write: {e.strerror}')
 
 
 def render(manual, out, caught=None, in_place=False):
@@ -262,12 +285,13 @@ def render(manual, out, caught=None, in_place=False):
 FIX = os.path.join(ROOT, 'manual', 'tests')
 
 
-def refused(manual, out, stub):
+def refused(manual, out, stub, reason=''):
+    """True when the render is refused, and for the reason named when one is given."""
     try:
         render(manual, out, stub)
         return False
-    except RenderError:
-        return True
+    except RenderError as e:
+        return reason in str(e)
 
 
 def selftest_cases(case):
@@ -344,13 +368,44 @@ def selftest_cases(case):
         site_toml = os.path.join(manual, 'site.toml')
         shutil.copy(site_toml, site_toml + '.kept')
         shutil.copy(os.path.join(FIX, 'site-empty-owner.toml'), site_toml)
-        case('an empty owner is refused', refused(manual, os.path.join(tmp, 'g'), stub))
+        case('an empty owner is refused', refused(manual, os.path.join(tmp, 'g'), stub, 'owner is empty'))
         with open(site_toml, encoding='utf-8') as f:
             text = f.read()
         with open(site_toml, 'w', encoding='utf-8') as f:
             f.write(text.replace('owner = ""', 'owner = "   "'))
-        case('an owner of white space is refused', refused(manual, os.path.join(tmp, 'h'), stub))
+        case('an owner of white space is refused', refused(manual, os.path.join(tmp, 'h'), stub, 'owner is empty'))
+        shutil.copy(os.path.join(FIX, 'site-zero-width-owner.toml'), site_toml)
+        case('an owner with no visible character is refused', refused(manual, os.path.join(tmp, 'i'), stub, 'owner is empty'))
         shutil.move(site_toml + '.kept', site_toml)
+
+        for fixture, folder, name in (('room-empty-how-it-runs', 'rooms', 'how-it-runs'),
+                                      ('room-index', 'rooms', 'index'),
+                                      ('card-all-empty', 'tools', 'card-all-empty')):
+            target = os.path.join(manual, folder, f'{name}.toml')
+            kept = open(target, 'rb').read() if os.path.isfile(target) else None
+            shutil.copy(os.path.join(FIX, f'{fixture}.toml'), target)
+            why, reason = {
+                'room-empty-how-it-runs': ('a room body with no visible text is refused, though its '
+                                           'term list would fill the page', 'body has no visible text'),
+                'room-index': ('a room id of index is refused: it would replace the front page',
+                               'reserved for the front page'),
+                'card-all-empty': ('a card whose what has no visible text is refused',
+                                   'what has no visible text')}[fixture]
+            case(why, refused(manual, os.path.join(tmp, f'j-{name}'), stub, reason))
+            if kept is None:
+                os.remove(target)
+            else:
+                with open(target, 'wb') as f:
+                    f.write(kept)
+
+        blocked = os.path.join(tmp, 'blocked')
+        os.makedirs(blocked)
+        open(os.path.join(blocked, 'site'), 'w').close()
+        try:
+            render(manual, blocked, stub)
+            case('a site that is a file under --out is a named error', False)
+        except RenderError as e:
+            case('a site that is a file under --out is a named error', str(e).startswith('site: '))
 
         readme = os.path.join(manual, 'readers', 'readme.toml')
         with open(readme, encoding='utf-8') as f:
@@ -372,7 +427,11 @@ def selftest():
     try:
         selftest_cases(case)
     except Exception as e:  # a corpus or fixture that cannot be read: can't tell, said, never silent
-        print(f'CAN\'T TELL · the self-test could not run its cases ({type(e).__name__}: {e})')
+        # never a machine path: a RenderError names files relative to the repository, and any
+        # other error is named by its type and the fixture's file name alone
+        what = str(e) if isinstance(e, RenderError) else os.path.basename(getattr(e, 'filename', '') or '')
+        print(f'CAN\'T TELL · the self-test could not run its cases ({type(e).__name__}'
+              f'{": " + what if what else ""})')
         print('selftest: FAIL')
         return 2
     ok = all(results)
