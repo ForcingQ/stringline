@@ -37,10 +37,11 @@ lower case. A list line is a word or phrase; "w:" matches only with a non-word c
 text's edge on both sides (a word character is a letter or digit after folding); "#" lines are
 comments; an empty list is CAN'T TELL.
 Read as text: a file with a text extension is decoded as UTF-8, and also as UTF-16 in both byte
-orders when it carries a mark or NUL bytes, every successful reading scanned; one that decodes
-no way is read as UTF-8 with replacement and as Latin-1, both scanned, and counted in the line as
-read with replacement, never CAN'T TELL (a word spelled in letters neither reading recovers is not
-seen). Any other file: UTF-16 when it carries a mark, else UTF-8 with replacement
+orders when it carries a mark or NUL bytes, every successful reading scanned. Whenever the strict
+UTF-8 reading fails, for any file read as text whatever its extension and whatever a UTF-16
+reading gave, it is also read as UTF-8 with replacement and as Latin-1, both scanned, and counted
+in the line as read with replacement, never CAN'T TELL (so a UTF-16 file counts there too; a word
+spelled in letters no reading recovers is not seen). Any other file: UTF-16 when it carries a mark, else UTF-8 with replacement
 when its first 8,000 bytes hold no NUL (git's own rule), else counted by name as binary. A blob
 is read once per way of reading it (the text-extension rule, the no-extension rule), whatever
 names it sits under; a bare blob a ref names has no name and is read by the no-extension rule.
@@ -111,15 +112,19 @@ def load_list(path):
 
 
 def readings(name, data):
-    """Return (texts, kind): kind is 'text', 'replaced', 'binary' or 'undecodable'."""
+    """Return (texts, kind): kind is 'text', 'replaced' or 'binary'. Whenever a file is read as
+    text and the strict UTF-8 reading fails, it is also read as UTF-8 with replacement and as
+    Latin-1, whatever its extension and whatever a UTF-16 reading gave (the owner's two rulings
+    of 8 October), and the kind is 'replaced', counted in the line."""
     ext = os.path.splitext(name)[1].lower()
     marked = data[:2] in MARKS
+    texts = []
+    try:
+        texts.append(data.decode("utf-8-sig"))
+        utf8_ok = True
+    except UnicodeDecodeError:
+        utf8_ok = False
     if ext in TEXT_EXT:
-        texts = []
-        try:
-            texts.append(data.decode("utf-8-sig"))
-        except UnicodeDecodeError:
-            pass
         if marked or b"\x00" in data:
             body = data[2:] if marked else data
             for enc in ("utf-16-le", "utf-16-be"):
@@ -127,19 +132,16 @@ def readings(name, data):
                     texts.append(body.decode(enc))
                 except UnicodeDecodeError:
                     pass
-        if texts:
-            return texts, "text"
-        # decodes no way: read as UTF-8 with replacement and as Latin-1, both scanned (the owner's
-        # ruling of 8 October), counted in the line, never can't tell
-        return [data.decode("utf-8", errors="replace"), data.decode("latin-1")], "replaced"
-    if marked:
+    elif marked:
         try:
-            return [data.decode("utf-16")], "text"
+            texts.append(data.decode("utf-16"))
         except UnicodeDecodeError:
-            return [], "undecodable"
-    if b"\x00" not in data[:8000]:
-        return [data.decode("utf-8", errors="replace")], "text"
-    return [], "binary"
+            pass
+    elif b"\x00" in data[:8000]:
+        return [], "binary"
+    if utf8_ok:
+        return texts, "text"
+    return texts + [data.decode("utf-8", errors="replace"), data.decode("latin-1")], "replaced"
 
 
 def reading_kind(name):
@@ -760,6 +762,17 @@ def selftest():
             expect("other", f"{label} --prepush", ["--prepush"], 1, repo, f"{ref} {oid} {ref} {ZERO}\n")
             expect("other", f"{label} --history", ["--history", "."], 1, repo)
 
+        print("-- the fallback readings run whenever strict UTF-8 fails, whatever the extension")
+        for name in ("case-latin1-nul-even.txt", "case-latin1.dat"):
+            expect("other", f"{name} --files", ["--files", name], 1, FIX, grep="1 read with replacement")
+            repo = new_repo(base, name + ".repo")
+            tip = commit_file(repo, name, fixture(name, binary=True), "Old notes")
+            expect("other", f"{name} --tree", ["--tree"], 1, repo, grep="1 read with replacement")
+            expect("other", f"{name} --prepush", ["--prepush"], 1, repo, new_ref(tip),
+                   grep="1 read with replacement")
+            expect("other", f"{name} --history", ["--history", "."], 1, repo,
+                   grep="1 read with replacement")
+
         print("-- one blob, two names: read once per way of reading it")
         same = fixture("case-same-bytes.dat", binary=True)
         repo = new_repo(base, "same-bytes.repo")
@@ -861,6 +874,16 @@ def selftest():
         latin_refused = p5.returncode != 0 and subprocess.run(
             ["git", "rev-parse", "--verify", "-q", "refs/heads/latin1"], cwd=remote,
             env=scratch_env(), capture_output=True).returncode != 0
+        fallback_refused = []
+        for name in ("case-latin1-nul-even.txt", "case-latin1.dat"):
+            sg(clone, "checkout", "-q", "-b", "fallback-" + name.replace(".", "-"), "origin/main")
+            commit_file(clone, name, fixture(name, binary=True), "Old notes")
+            ref = "refs/heads/fallback-" + name.replace(".", "-")
+            p6 = subprocess.run(["git", "push", "-q", "origin", "HEAD:" + ref], cwd=clone,
+                                env=scratch_env(), capture_output=True)
+            fallback_refused.append(p6.returncode != 0 and subprocess.run(
+                ["git", "rev-parse", "--verify", "-q", ref], cwd=remote, env=scratch_env(),
+                capture_output=True).returncode != 0)
         object_refused = []
         for label, make in object_cases:
             ref, oid = make(clone)
@@ -872,12 +895,15 @@ def selftest():
         remote_tip = sg(remote, "rev-parse", "main")
         clean_ok = p1.returncode == 0
         refused = p2.returncode != 0 and remote_tip != sg(clone, "rev-parse", "HEAD")
-        results["other"] += [clean_ok, refused, same_refused, latin_refused] + object_refused
+        results["other"] += ([clean_ok, refused, same_refused, latin_refused] + fallback_refused
+                             + object_refused)
         print(f"{'ok  ' if clean_ok else 'FAIL'} · hook: a clean push goes through")
         print(f"{'ok  ' if refused else 'FAIL'} · hook: a push carrying a sample word is refused")
         print(f"{'ok  ' if same_refused else 'FAIL'} · hook: a push of case-same-bytes.dat at"
               " FIXTURE-a.dat and FIXTURE-b.md is refused")
         print(f"{'ok  ' if latin_refused else 'FAIL'} · hook: a push of case-latin1.txt is refused")
+        for name, ok in zip(("case-latin1-nul-even.txt", "case-latin1.dat"), fallback_refused):
+            print(f"{'ok  ' if ok else 'FAIL'} · hook: a push of {name} is refused")
         for (label, _), ok in zip(object_cases, object_refused):
             print(f"{'ok  ' if ok else 'FAIL'} · hook: a push of {label} is refused")
     finally:
