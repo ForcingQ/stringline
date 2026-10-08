@@ -27,7 +27,7 @@ A specification here answers one question: could someone who was not in the room
 - **The corpus is the registry.** The list of tools lives nowhere but the corpus; cards and check scope derive from it. `runs/` and `site/` are committed: the log and the rendered manual are part of the public record.
 - **Merges never rewrite history** (no squash, no rebase onto main). *Why:* every stamp and every run row names a commit; a rewritten history orphans them all.
 - **Reports, not stops, except the push check.** The owner's ruling: the private-word check refuses a push, as it does now; every other check reports, and the quote checker's four outcomes never stop work on "can't check". Whether a given tool may stop the work is decided per tool, once its run log shows what it catches.
-- **Nothing private.** No code, text, name, look or commit from the owner's earlier work; each part is written fresh from the pattern. The manual says on its face that the originals are not shown and that fidelity is the owner's claim.
+- **Nothing private.** No code, text, name or commit from the owner's earlier work; each part is written fresh from the pattern. The look is the one thing carried: the manual wears the owner's own brand (its colours, type and spacing), set down fresh for these pages and not named in them. The manual says on its face that the originals are not shown and that fidelity is the owner's claim.
 
 ## Out of scope for this spec
 
