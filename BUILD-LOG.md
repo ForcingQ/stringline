@@ -15,3 +15,4 @@ Each entry is written by the session's AI lead at the close and read by the owne
 3. [2026-10-07 · map, order, spec](BUILD-LOG-2026-10-07-s3-map-order-spec.md)
 4. [2026-10-07 · specifying the four placed items](BUILD-LOG-2026-10-07-s3b-spec-the-placed-items.md)
 5. [2026-10-07 · the build](BUILD-LOG-2026-10-07-s4-the-build.md)
+6. [2026-10-08 · the tidy before the surface](BUILD-LOG-2026-10-08-s4b-the-tidy.md)

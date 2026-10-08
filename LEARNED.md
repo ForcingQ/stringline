@@ -17,3 +17,21 @@ What I learn building this, recorded the session it lands, in my own words. One 
 ## 2026-10-07 · specifying the four placed items
 
 - *"our tools first real catch what records I was keeping by hand, and the tool we are building would have caught it.  There is a difference between someone reading a spec and building from it."*
+
+## 2026-10-07 · the build
+
+About the work
+
+- *"Reviewed work does not always equal trusted work.  Multiple rounds of chasing are signals, look for these patterns."*
+
+How it Ran
+
+- *"Heavy sessions shouldnt put me as a gate where I can't review with the depth they likely required."*
+
+About the result
+
+- *"learning from the adjustments is value in itself, I get to look at whether it was the right call or not."*
+
+## 2026-10-08 · the tidy before the surface
+
+- *"Active use is also a form of review"*
