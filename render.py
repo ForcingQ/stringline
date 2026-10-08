@@ -13,6 +13,14 @@ records, or a card's "what it has caught" line from tools/runlog.py (imported, n
 The one exception is structure the spec names but gives no record, kept in this code: four card
 labels are INTENT.md's words (what it is, the first thing to do, the one gotcha, what it has
 caught), "The failure that earned it" is SPEC.md's phrase, and "in progress" is SPEC-card.md's.
+The look is held beside the records in manual/look/: style.css is written into every page's
+head as one style block (its {fonts} token replaced by the page's own way to site/fonts/), and
+every file in manual/look/fonts/ is copied to site/fonts/ byte for byte. Refused, one line, exit
+2: a style block that is missing, empty or holds a closing style tag; a font the block names
+that is not there; a font file with no LICENSE-<face>.txt beside it, or no NOTICE.txt (a face
+never ships bare); a link in the fonts folder; a folder that cannot be read. Dot-files and
+sub-folders there are skipped. The front page lists the rooms: each room's title and the first
+block of its body, whole. The current room is marked in the nav with aria-current.
 In place, site/ is wholly derived and is replaced; under `--out <dir>` it writes only the files
 it renders and deletes nothing. Standard library only, Python 3.11 or later.
 Visible text: at least one character outside Unicode's Z, C and M categories and not a
@@ -157,6 +165,13 @@ def inline_md(text, depth=0):
     return inline(html.escape(text.strip(), quote=True), depth)
 
 
+def first_block(body, depth=0):
+    """The first block of a body, whole: a paragraph with every line of it, or a list with
+    every item. Split as markdown() splits, on the source, never on the rendered text."""
+    blocks = [b for b in re.split(r'\n\s*\n', body.strip('\n')) if b.strip()]
+    return markdown(blocks[0], depth) if blocks else ''
+
+
 def markdown(body, depth=0):
     text = html.escape(body.strip('\n'), quote=True)
     blocks = [b for b in re.split(r'\n\s*\n', text) if b.strip()]
@@ -174,6 +189,7 @@ def markdown(body, depth=0):
 # ---- pages
 
 
+FONT_FILES = ('.ttf', '.otf', '.woff', '.woff2')
 FONTS_TOKEN = '{fonts}'  # in the style block, replaced by the page's own way to site/fonts/
 
 
@@ -192,12 +208,23 @@ def load_look(manual):
     if '</style' in style.lower():
         raise RenderError('manual/look/style.css: holds a closing style tag')
     fonts, folder = {}, os.path.join(look, 'fonts')
-    for name in sorted(os.listdir(folder)) if os.path.isdir(folder) else []:
-        path = os.path.join(folder, name)
-        if name.startswith('.') or not os.path.isfile(path):
-            continue
-        with open(path, 'rb') as f:
-            fonts[name] = f.read()
+    try:
+        for name in sorted(os.listdir(folder)) if os.path.isdir(folder) else []:
+            path = os.path.join(folder, name)
+            if os.path.islink(path):
+                raise RenderError(f'manual/look/fonts/{name}: a link, not a file')
+            if name.startswith('.') or not os.path.isfile(path):
+                continue
+            with open(path, 'rb') as f:
+                fonts[name] = f.read()
+    except OSError as e:
+        raise RenderError(f'manual/look/fonts: cannot read ({e.strerror})')
+    # a face never ships bare: each font file needs its face's licence file beside it and the
+    # one-line notice that the fonts are under their own licence (the owner's ruling)
+    faces = sorted({n.split('-')[0] for n in fonts if n.lower().endswith(FONT_FILES)})
+    for need in [f'LICENSE-{face}.txt' for face in faces] + (['NOTICE.txt'] if faces else []):
+        if not fonts.get(need, b'').strip():
+            raise RenderError(f'manual/look/fonts/{need}: a font ships without it')
     for name in re.findall(re.escape(FONTS_TOKEN) + r'([^)\s"\']+)', style):
         if not fonts.get(name):
             raise RenderError(f'manual/look/fonts/{name}: named by the style block and not there')
@@ -268,7 +295,7 @@ def render_files(corpus, caught=None):
     # its body, then the released cards as the tools room lists them (none released: no list)
     front = '<ul class="rooms">' + ''.join(
         f'<li><a href="{rid}.html">{html.escape(rooms[rid]["title"])}</a>'
-        f'{markdown(rooms[rid]["body"]).split(chr(10))[0]}</li>' for rid in site['rooms']) + '</ul>'
+        f'{first_block(rooms[rid]["body"])}</li>' for rid in site['rooms']) + '</ul>'
     files = {'site/index.html': page(site, site['title'], front + cards_ul, depth=0)}
     for name, data in fonts.items():
         files[f'site/fonts/{name}'] = data
@@ -425,10 +452,21 @@ def selftest_cases(case):
              and f'href="{BUILD_ROOM}.html" aria-current="page"' in fa['site/build.html']
              and f'href="../{TOOLS_ROOM}.html" aria-current="page"' in page_
              and 'aria-current="page"' not in fa['site/index.html'])
+        corpus_now = load_corpus(manual)
+        want_rows = ''.join(f'<li><a href="{rid}.html">{html.escape(corpus_now["rooms"][rid]["title"])}</a>'
+                            f'{first_block(corpus_now["rooms"][rid]["body"])}</li>'
+                            for rid in corpus_now['site']['rooms'])
         case('the front page lists the rooms and the released cards, from text that exists',
              fa['site/index.html'].split('<main>')[1].count('<li>')
-             == len(load_corpus(manual)['site']['rooms']) + 1
-             and 'tools/card-released.html' in fa['site/index.html'])
+             == len(corpus_now['site']['rooms']) + 1
+             and 'tools/card-released.html' in fa['site/index.html']
+             and f'<ul class="rooms">{want_rows}</ul>' in fa['site/index.html'])
+        case('a first block is whole: every line of a paragraph, every item of a list, tags closed',
+             first_block('line one\nline two\nline three\n\nsecond block')
+             == '<p>line one\nline two\nline three</p>'
+             and first_block('- one\n- two\n\nafter') == '<ul><li>one</li><li>two</li></ul>'
+             and first_block('\n\n   \n\nreal words\r\nmore') .startswith('<p>real words')
+             and first_block('\n \n') == '')
         case('the caught line is marked for the look', '<p class="caught">no real run yet</p>' in page_)
         bare = os.path.join(tmp, 'bare')
         shutil.copytree(manual, bare)
@@ -442,17 +480,33 @@ def selftest_cases(case):
                  'manual/look/style.css: empty'),
                 ('a missing style block', lambda d: os.remove(os.path.join(d, 'look', 'style.css')),
                  'manual/look/style.css: cannot read'),
+                ('a closing style tag in the style block, in any case',
+                 lambda d: open(os.path.join(d, 'look', 'style.css'), 'a').write('\n</STYLE >\n'),
+                 'holds a closing style tag'),
+                ('a face with no licence file beside it',
+                 lambda d: os.remove(os.path.join(d, 'look', 'fonts', sorted(
+                     n for n in shipped if n.startswith('LICENSE-'))[0])), 'a font ships without it'),
+                ('fonts with no notice of their own licence',
+                 lambda d: os.remove(os.path.join(d, 'look', 'fonts', 'NOTICE.txt')),
+                 'NOTICE.txt: a font ships without it'),
+                ('a fonts folder that cannot be read',
+                 lambda d: os.chmod(os.path.join(d, 'look', 'fonts'), 0o000), 'manual/look/fonts: cannot read'),
+                ('a link in the fonts folder',
+                 lambda d: os.symlink('NOTICE.txt', os.path.join(d, 'look', 'fonts', 'FIXTURE-link.txt')),
+                 'FIXTURE-link.txt: a link, not a file'),
                 ('a font the style block names that is not there',
                  lambda d: os.remove(os.path.join(d, 'look', 'fonts', sorted(
                      n for n in shipped if n.endswith('.ttf'))[0])), 'named by the style block and not there')):
-            broken = os.path.join(tmp, 'look-' + label.split()[1])
+            broken = os.path.join(tmp, 'look-' + re.sub(r'\W+', '-', label))
             shutil.copytree(manual, broken)
             breaker(broken)
             try:
                 render(broken, os.path.join(tmp, 'never'), stub)
                 case(f'the look: {label} is refused', False)
             except RenderError as e:
-                case(f'the look: {label} is refused', needle in str(e))
+                case(f'the look: {label} is refused', needle in str(e) and tmp not in str(e))
+            finally:
+                os.chmod(os.path.join(broken, 'look', 'fonts'), 0o755)
 
         keep = os.path.join(tmp, 'keep')
         os.makedirs(os.path.join(keep, 'site'))
