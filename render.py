@@ -286,16 +286,22 @@ def page(site, title, body_html, depth, current=None):
 
 
 def runlog_caught_line():
-    """The card's fourth field comes from tools/runlog.py; it is imported here, never copied."""
+    """The card's fourth field comes from tools/runlog.py; it is imported here, never copied.
+    What is looked at for links is exactly what is then read: the module is loaded from the one
+    file the gate looked at, by its path, and the log is read from the one folder the gate
+    walked, named to the module, never left to the module's own search for a folder."""
     no_links_in_log(ROOT)
-    sys.path.insert(0, os.path.join(ROOT, 'tools'))
+    module, runs = os.path.join(ROOT, 'tools', 'runlog.py'), os.path.join(ROOT, 'runs')
+    import importlib.util
     try:
-        import runlog
-    except ImportError as e:
-        raise RenderError(f'tools/runlog.py: cannot import ({e}); a released card needs it')
-    finally:
-        sys.path.pop(0)
-    return runlog.caught_line
+        spec = importlib.util.spec_from_file_location('runlog', module)
+        runlog = importlib.util.module_from_spec(spec)
+        sys.modules['runlog'] = runlog  # the tools import it by this name
+        spec.loader.exec_module(runlog)
+    except (OSError, ImportError, SyntaxError, AttributeError) as e:
+        sys.modules.pop('runlog', None)
+        raise RenderError(f'tools/runlog.py: cannot import ({type(e).__name__}); a released card needs it')
+    return lambda tool, catching=None: runlog.caught_line(tool, catching, folder=runs)
 
 
 def card_page(site, card, caught):
@@ -624,6 +630,26 @@ def selftest_cases(case):
             case('the run log\'s gate runs before the log is read for a card', 'a link' in str(e))
         finally:
             globals()['ROOT'] = real_root
+        # what the gate looked at is what is read: a fixture module that only says which folder
+        # it was handed, loaded from the gated root
+        same_root = os.path.join(tmp, 'log-same-path')
+        os.makedirs(os.path.join(same_root, 'runs'))
+        os.makedirs(os.path.join(same_root, 'tools'))
+        with open(os.path.join(same_root, 'tools', 'runlog.py'), 'w', encoding='utf-8') as f:
+            f.write('def caught_line(tool, catching=None, folder=None):\n    return "FIXTURE read " + str(folder)\n')
+        saved_module = sys.modules.pop('runlog', None)
+        globals()['ROOT'] = same_root
+        try:
+            said = runlog_caught_line()('fixture-tool')
+        except RenderError as e:
+            said = str(e)
+        finally:
+            globals()['ROOT'] = real_root
+            sys.modules.pop('runlog', None)
+            if saved_module is not None:
+                sys.modules['runlog'] = saved_module
+        case('the log is read from the folder the gate walked, by the module the gate looked at',
+             said == 'FIXTURE read ' + os.path.join(same_root, 'runs'))
 
         keep = os.path.join(tmp, 'keep')
         os.makedirs(os.path.join(keep, 'site'))
