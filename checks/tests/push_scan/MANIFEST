@@ -32,3 +32,5 @@ checks/tests/push_scan/plant-13-stale-ref.txt
 checks/tests/push_scan/plant-14-merge.txt
 checks/tests/push_scan/plant-15-tag.txt
 checks/tests/push_scan/twin-list-empty.txt
+checks/tests/push_scan/case-nested-tag.txt
+checks/tests/push_scan/case-tag-of-blob.txt

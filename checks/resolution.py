@@ -19,7 +19,9 @@ Its twin: a manual/ folder with zero records, or a tools/ folder with tools and 
 a missing manual/ folder is CAN'T TELL (a branch building the checks before the corpus exists).
 What it does not prove: that a link points at the right place, that a card's words match its
 tool, or that every use of a term is linked. Links with a scheme (https:, mailto:) are counted,
-not followed. Records under any tests/ folder inside manual/ are fixtures, counted and not read.
+not followed; a link to a folder, or one whose target holds a space or a title, is RED. The only
+records left unread are the files directly under manual/tests/ (fixtures), counted in the line.
+A released card whose main file is not tracked is RED: its copies are never silently uncompared.
 A tool that crashes or warns when asked for its copies is CAN'T TELL; so is any git error.
 
 Output, one line: `GREEN · read ...`, `RED: <record>: <target>` or `CAN'T TELL: <what>`; exit 0/1/2.
@@ -45,7 +47,7 @@ KINDS = {  # kind: (required keys, allowed keys)
     "readers": ({"id", "sections"}, {"id", "sections"}),
     "tools": (CARD_REQUIRED, CARD_REQUIRED | CARD_RELEASED | {"catching"}),
 }
-LINK = re.compile(r"\[[^\]]*\]\(([^)\s]*)\)")
+LINK = re.compile(r"\[[^\]]*\]\(([^)]*)\)")
 TERM = re.compile(r"#term:([A-Za-z0-9_-]*)")
 SCHEME = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*:")
 
@@ -95,15 +97,11 @@ def run(root):
     if not os.path.isdir(os.path.join(root, "manual")):
         return "CAN'T TELL: no manual/ folder on this tree, so no records to resolve", 2
     tracked = git_files(root)
-    dirs = {posixpath.dirname(f) for f in tracked}
-    for d in list(dirs):
-        while d:
-            d = posixpath.dirname(d)
-            dirs.add(d)
     reds, records, cards, fixtures, links, external, skipped = [], {}, {}, 0, 0, 0, 0
+    compared = 0
     for path in sorted(f for f in tracked if f.startswith("manual/") and f.endswith(".toml")):
         parts = path.split("/")
-        if "tests" in parts[1:-1]:
+        if len(parts) == 3 and parts[1] == "tests":  # manual/tests/<file>: fixtures, one level only
             fixtures += 1
             continue
         try:
@@ -117,7 +115,7 @@ def run(root):
     def resolves(target):
         target = target.split("#", 1)[0].split("?", 1)[0].rstrip("/")
         norm = posixpath.normpath(target) if target else ""
-        return bool(norm) and not norm.startswith("..") and (norm in tracked or norm in dirs)
+        return bool(norm) and not norm.startswith("..") and norm in tracked  # a file, never a folder
 
     for path, rec in records.items():
         parts = path.split("/")
@@ -154,10 +152,13 @@ def run(root):
                 if target.startswith("#term:"):
                     continue  # counted and resolved with the term links below
                 links += 1
-                if SCHEME.match(target):
+                if re.search(r"\s", target):
+                    reds.append(f"{path}: link ({target}) holds a space or a title, outside the"
+                                f" markdown subset")
+                elif SCHEME.match(target):
                     external += 1
                 elif not resolves(target):
-                    reds.append(f"{path}: link {target or '(empty)'} resolves to no tracked path")
+                    reds.append(f"{path}: link {target or '(empty)'} resolves to no tracked file")
             for term in TERM.findall(text):
                 links += 1
                 if f"manual/terms/{term}.toml" not in tracked:
@@ -185,8 +186,11 @@ def run(root):
             if gone:
                 reds.append(f"{path}: files names {gone[0]}, which is not tracked")
             main = f"tools/{name}/{name.replace('-', '_')}.py"
-            if main not in tracked or name not in folders:
+            if main not in tracked:
+                reds.append(f"{path}: released, and its main file {main} is not tracked, so its"
+                            f" copies cannot be compared")
                 continue
+            compared += 1
             if sorted(ask_tool(root, main, "--files")) != sorted(files):
                 reds.append(f"{path}: files differs from what {main} --files prints")
             if " ".join(ask_tool(root, main, "--earned-by")) != str(rec.get("earned_by", "")).strip():
@@ -204,8 +208,9 @@ def run(root):
         return f"RED: {reds[0]}{more}", 1
     return (f"GREEN · read {len(records)} records, {links} links ({external} with a scheme, not"
             f" followed), {len(folders)} tool folders, {len(cards)} cards · against tracked paths"
-            f" (git ls-files) · {skipped} building card(s)' comparisons skipped · {fixtures}"
-            f" fixture record(s) not read"), 0
+            f" (git ls-files) · {compared} released card(s) compared with their tools,"
+            f" {skipped} building card(s)' comparisons skipped · {fixtures} fixture record(s)"
+            f" directly under manual/tests/ not read"), 0
 
 
 # ---------------------------------------------------------------- self-test
@@ -266,7 +271,11 @@ def selftest():
         "gone.py, which is not tracked", "plant-reserved-id": "fixture-tool is reserved",
         "plant-unparseable": "does not parse", "plant-untracked-target": "link NOTES.md",
         "twin-empty-manual": "zero records", "twin-tools-no-cards": "tool folder(s) and no cards",
-        "cant-tell-tool-crash": "--catching exited 1", "control-corpus": "GREEN",
+        "cant-tell-tool-crash": "--catching exited 1", "control-corpus": "1 released card(s) compared",
+        "plant-main-file-missing": "main file tools/demo/demo.py is not tracked",
+        "plant-folder-link": "link tools/ resolves to no tracked file",
+        "plant-deep-tests": "manual/rooms/tests/hidden.toml: a record in a folder of no kind",
+        "plant-link-with-space": "holds a space or a title",
     }
     cases = [("control-corpus", 0)]
     for name in sorted(os.listdir(fix)):

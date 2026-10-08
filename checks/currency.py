@@ -15,7 +15,8 @@ building the checks before the corpus exists sees can't tell, not red); zero rel
 building is GREEN and says so, so the building phase is neither blind nor permanently red.
 What it does not prove: that a card is right; only that someone re-read it after the last change
 to its files. It cannot look at a shallow clone (CAN'T TELL), and it treats any git error, or a
-warning on standard error with exit 0, as CAN'T TELL. It needs merges that never rewrite history.
+warning on standard error with exit 0, as CAN'T TELL; a status other than
+building or released is CAN'T TELL naming the card and the value. It needs merges that never rewrite history.
 
 Output, one line: `GREEN · read ...`, `RED: <card>: <what>` or `CAN'T TELL: <what>`; exit 0/1/2.
   currency.py [--root DIR]    DIR defaults to the folder above checks/
@@ -72,8 +73,12 @@ def run(root):
             except (OSError, tomllib.TOMLDecodeError) as e:
                 cants.append(f"{rel}: unreadable ({e.__class__.__name__})")
                 continue
-            if card.get("status") != "released":
-                building += card.get("status") == "building"
+            status = card.get("status")
+            if status not in ("building", "released"):
+                cants.append(f"{rel}: status {status!r} is neither building nor released")
+                continue
+            if status == "building":
+                building += 1
                 continue
             released += 1
             files = card.get("files")
@@ -187,6 +192,7 @@ def selftest():
         ("cant-tell-unmerged-stamp.toml", 2, None, "unmerged", None),
         ("cant-tell-git-warning.toml", 2, None, "tool", ambiguous),
         ("unreadable-card.toml", 2, None, "tool", None),
+        ("cant-tell-unknown-status.toml", 2, None, "tool", None),
     ]
     ok_all = True
     try:

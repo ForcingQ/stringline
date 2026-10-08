@@ -21,9 +21,12 @@ foldings below and outside its small, hand-kept look-alike table.
   push_scan.py --files F [F ...]   the given files, as given (no exclusions)
   push_scan.py --stdin             text on standard input (a commit message, say)
   push_scan.py --history REPO      every commit reachable from any ref, every path and file in
-                                   each, every tag object
+                                   each, and every object a ref names: a tag through any chain of
+                                   tags (each scanned), a tree, a blob
   push_scan.py --prepush           git's pre-push lines on standard input, "<local ref> <local id>
-                                   <remote ref> <remote id>"; scans what the remote lacks
+                                   <remote ref> <remote id>"; scans each pushed object (a tag
+                                   through any chain to what it names; a tree; a blob) and every
+                                   commit the remote lacks
   push_scan.py --list PATH         another word list (one that stays private, say)
   push_scan.py --selftest          15 plants, 2 controls, foldings, twin, unreadable, the hook
 
@@ -41,6 +44,8 @@ Exclusions (--tree, --history, --prepush): exactly the paths named in
 checks/tests/push_scan/MANIFEST, name and content; in --history and --prepush each commit is
 read against the MANIFEST as it was in that commit. An entry naming anything but the sample list
 or a file under checks/tests/push_scan/ is RED: a manifest that may name anything is a hiding place.
+Every git command's exit code and standard error are read: a non-zero exit, or a warning on
+standard error with exit 0, is CAN'T TELL.
 Exit 0 nothing hit · 1 a hit (even beside something unreadable), or the twin · 2 could not look.
 As a hook, 1 and 2 both refuse the push. In run_all it reports, like every other check.
 """
@@ -172,14 +177,17 @@ class Scan:
 
 
 def git(args, cwd, data=None):
+    """Run git; a non-zero exit, or anything on standard error with exit 0, is CAN'T TELL."""
     try:
         p = subprocess.run(["git", "-c", "core.quotepath=off"] + args, cwd=cwd, input=data,
                            capture_output=True)
     except OSError as e:
         raise CannotLook(f"git could not run: {e}")
+    err = p.stderr.decode("utf-8", "replace").strip().splitlines()
     if p.returncode != 0:
-        err = p.stderr.decode("utf-8", "replace").strip().splitlines()
         raise CannotLook(f"git {args[0]} exited {p.returncode}: {err[-1] if err else 'no message'}")
+    if err:
+        raise CannotLook(f"git {args[0]} warned: {err[0]}")
     return p.stdout
 
 
@@ -204,11 +212,15 @@ class Store:
     def close(self):
         try:
             self.p.stdin.close()
+            err = self.p.stderr.read().decode("utf-8", "replace").strip()
             self.p.wait(timeout=30)
         except Exception:
             self.p.kill()
-        if self.p.returncode not in (0, None, -9):
+            raise CannotLook("git cat-file did not finish")
+        if self.p.returncode != 0:
             raise CannotLook(f"git cat-file exited {self.p.returncode}")
+        if err:
+            raise CannotLook(f"git cat-file warned: {err.splitlines()[0]}")
 
 
 def parse_manifest(text, scan, where):
@@ -224,8 +236,8 @@ def parse_manifest(text, scan, where):
     return excluded
 
 
-def tree_entries(repo, commit):
-    out = git(["ls-tree", "-r", "-z", "--full-tree", commit], repo)
+def tree_entries(repo, treeish):
+    out = git(["ls-tree", "-r", "-z", "--full-tree", treeish], repo)
     entries = []
     for rec in out.split(b"\0"):
         if not rec:
@@ -236,15 +248,14 @@ def tree_entries(repo, commit):
     return entries
 
 
-def scan_commit(repo, store, oid, scan, state):
-    typ, raw = store.read(oid)
-    scan.scan_text(raw.decode("utf-8", "replace"), f"commit {oid[:12]}")
-    entries = tree_entries(repo, oid)
+def scan_tree(repo, store, treeish, scan, state, label):
+    """Every path name and file of a tree, read against the MANIFEST that tree holds."""
+    entries = tree_entries(repo, treeish)
     excluded = set()
     for mode, t, boid, path in entries:
         if path == MANIFEST_REL and t == "blob":
             excluded = parse_manifest(store.read(boid)[1].decode("utf-8", "replace"), scan,
-                                      f"{oid[:12]}:{MANIFEST_REL}")
+                                      f"{label}:{MANIFEST_REL}")
     for mode, t, boid, path in entries:
         if path in excluded:
             scan.skipped.add(path)
@@ -258,7 +269,46 @@ def scan_commit(repo, store, oid, scan, state):
         if boid in state["blobs"]:
             continue
         state["blobs"].add(boid)
-        scan.scan_bytes(path, store.read(boid)[1], f"{oid[:12]}:{path}")
+        scan.scan_bytes(path, store.read(boid)[1], f"{label}:{path}")
+
+
+def scan_commit(repo, store, oid, scan, state):
+    typ, raw = store.read(oid)
+    scan.scan_text(raw.decode("utf-8", "replace"), f"commit {oid[:12]}")
+    scan_tree(repo, store, oid, scan, state, oid[:12])
+
+
+def scan_object(repo, store, oid, scan, state):
+    """Any object a ref names. A tag is scanned, then followed through any chain of tags, each
+    scanned; a tree has every path and file scanned; a blob its content. Returns the commit a
+    chain ends at (its range is the caller's to choose), else None."""
+    typ, data = store.read(oid)
+    if typ == "commit":
+        return oid
+    if oid in state["objects"]:
+        return None
+    state["objects"].add(oid)
+    if typ == "tag":
+        scan.scan_text(data.decode("utf-8", "replace"), f"tag {oid[:12]}")
+        state["tags"] += 1
+        m = re.search(rb"^object ([0-9a-f]+)$", data, re.M)
+        if not m:
+            raise CannotLook(f"tag {oid[:12]} names no object")
+        return scan_object(repo, store, m.group(1).decode(), scan, state)
+    state["other"] += 1
+    if typ == "tree":
+        scan_tree(repo, store, oid, scan, state, f"tree {oid[:12]}")
+    elif typ == "blob":
+        if oid not in state["blobs"]:
+            state["blobs"].add(oid)
+            scan.scan_bytes("", data, f"blob {oid[:12]}")
+    else:
+        raise CannotLook(f"object {oid[:12]} is of a kind not read: {typ}")
+    return None
+
+
+def new_state():
+    return {"paths": set(), "blobs": set(), "objects": set(), "tags": 0, "other": 0}
 
 
 def skipped_text(scan):
@@ -280,9 +330,11 @@ def mode_tree(list_path, list_name):
             with open(man, encoding="utf-8", errors="replace") as f:
                 excluded = parse_manifest(f.read(), scan, MANIFEST_REL)
         commits = 0
-        has_head = subprocess.run(["git", "rev-parse", "--verify", "-q", "HEAD"], cwd=root,
-                                  capture_output=True).returncode == 0
-        if has_head:
+        probe = subprocess.run(["git", "rev-parse", "--verify", "-q", "HEAD"], cwd=root,
+                               capture_output=True)
+        if probe.stderr.strip():
+            raise CannotLook(f"git rev-parse warned: {probe.stderr.decode('utf-8', 'replace').splitlines()[0]}")
+        if probe.returncode == 0:
             raw = git(["cat-file", "commit", "HEAD"], root)
             scan.scan_text(raw.decode("utf-8", "replace"), "commit HEAD")
             commits = 1
@@ -376,37 +428,35 @@ def mode_stdin(terms, list_name):
 
 def mode_history(repo, terms, list_name):
     scan = Scan(terms)
-    state = {"paths": set(), "blobs": set()}
-    commits = tags = 0
+    state = new_state()
+    commits = 0
     store = None
     try:
         revs = git(["rev-list", "--all"], repo).decode().split()
-        if not revs:
-            return report(scan, "read 0 commits", list_name, "no commit is reachable from any ref")
+        refs = git(["for-each-ref", "--format=%(objecttype) %(objectname)"], repo).decode()
         store = Store(repo)
         for oid in revs:
             scan_commit(repo, store, oid, scan, state)
             commits += 1
-        refs = git(["for-each-ref", "--format=%(objecttype) %(objectname)", "refs/tags"], repo)
-        for line in refs.decode().split("\n"):
-            if line.startswith("tag "):
-                oid = line.split()[1]
-                scan.scan_text(store.read(oid)[1].decode("utf-8", "replace"), f"tag {oid[:12]}")
-                tags += 1
+        for line in refs.split("\n"):
+            if line.strip() and not line.startswith("commit "):
+                scan_object(repo, store, line.split()[1], scan, state)  # tags, nested, trees, blobs
         store.close()
     except CannotLook as e:
         return report(scan, f"read {commits} commits before stopping", list_name, str(e))
-    read = (f"read {commits} commits, {scan.text} files, {scan.binary} binary counted, {tags} tags"
-            f" · {skipped_text(scan)}")
+    read = (f"read {commits} commits, {scan.text} files, {scan.binary} binary counted,"
+            f" {state['tags']} tags, {state['other']} other objects · {skipped_text(scan)}")
+    if not revs:
+        return report(scan, read, list_name, "no commit is reachable from any ref")
     return report(scan, read, list_name)
 
 
 def mode_prepush(terms, list_name):
     scan = Scan(terms)
-    state = {"paths": set(), "blobs": set()}
+    state = new_state()
     done = set()
     lines = [l for l in sys.stdin.read().split("\n") if l.strip()]
-    commits = deletions = tags = 0
+    commits = deletions = 0
     if not lines:
         return report(scan, "nothing pushed (git gave no lines)", list_name)
     repo = os.getcwd()
@@ -421,21 +471,19 @@ def mode_prepush(terms, list_name):
             if lid == ZERO:
                 deletions += 1
                 continue
-            typ = git(["cat-file", "-t", lid], repo).decode().strip()
-            if typ == "tag":
-                scan.scan_text(store.read(lid)[1].decode("utf-8", "replace"), f"tag {lid[:12]}")
-                tags += 1
-            target = git(["rev-parse", lid + "^{}"], repo).decode().strip()
-            if git(["cat-file", "-t", target], repo).decode().strip() != "commit":
-                continue
-            if rid == ZERO:
-                revs = git(["rev-list", target], repo).decode().split()
-            else:
-                if subprocess.run(["git", "cat-file", "-e", rid + "^{commit}"], cwd=repo,
-                                  capture_output=True).returncode != 0:
+            target = scan_object(repo, store, lid, scan, state)
+            if target is None:
+                continue  # a blob, a tree, or a tag chain ending at one: scanned above
+            base = None
+            if rid != ZERO:
+                held = subprocess.run(["git", "cat-file", "-e", rid], cwd=repo, capture_output=True)
+                if held.returncode != 0:
                     raise CannotLook(f"the remote's id {rid[:12]} for {rref} is not held here")
-                revs = git(["rev-list", f"{rid}..{target}"], repo).decode().split()
-            for oid in revs:
+                peeled = subprocess.run(["git", "rev-parse", "--verify", "-q", rid + "^{commit}"],
+                                        cwd=repo, capture_output=True)
+                base = peeled.stdout.decode().strip() if peeled.returncode == 0 else None
+            rng = [f"{base}..{target}"] if base else [target]
+            for oid in git(["rev-list"] + rng, repo).decode().split():
                 if oid in done:
                     continue
                 done.add(oid)
@@ -444,10 +492,11 @@ def mode_prepush(terms, list_name):
         store.close()
     except CannotLook as e:
         return report(scan, f"read {commits} commits before stopping", list_name, str(e))
-    if commits == 0 and tags == 0 and deletions:
+    if commits == 0 and not state["objects"] and deletions:
         return report(scan, f"{deletions} deletion(s) counted, nothing pushed to scan", list_name)
-    read = (f"read {commits} commits, {scan.text} files, {scan.binary} binary counted, {tags} tags,"
-            f" {deletions} deletions counted · {skipped_text(scan)}")
+    read = (f"read {commits} commits, {scan.text} files, {scan.binary} binary counted,"
+            f" {state['tags']} tags, {state['other']} other objects, {deletions} deletions counted"
+            f" · {skipped_text(scan)}")
     return report(scan, read, list_name)
 
 
@@ -636,6 +685,46 @@ def selftest():
         expect("other", "a hit beside case-undecodable.txt", ["--files", "plant-01-tip.txt",
                "case-undecodable.txt"], 1, FIX, grep="could not read")
 
+        print("-- pushed objects that are not commits: each read, never skipped")
+
+        def blob_of(repo, name):
+            put(repo, repo + ".blob", fixture(name, binary=True))  # beside the repository, never in it
+            return sg(repo, "hash-object", "-w", repo + ".blob")
+
+        def tag_of_blob(repo):
+            blob = blob_of(repo, "case-tag-of-blob.txt")
+            sg(repo, "update-ref", "refs/tags/blob-tag", blob)
+            return "refs/tags/blob-tag", blob
+
+        def annotated_of_blob(repo):
+            blob = blob_of(repo, "case-tag-of-blob.txt")
+            sg(repo, "tag", "-a", "-m", fixture("control-clean.txt"), "blob-note", blob)
+            return "refs/tags/blob-note", sg(repo, "rev-parse", "blob-note")
+
+        def nested(repo):
+            msg = repo + ".inner-message"
+            put(repo, msg, fixture("case-nested-tag.txt"))
+            sg(repo, "tag", "-a", "-F", msg, "inner", "HEAD")
+            sg(repo, "tag", "-a", "-m", fixture("control-clean.txt"), "outer", "inner")
+            sg(repo, "tag", "-d", "inner")
+            return "refs/tags/outer", sg(repo, "rev-parse", "outer")
+
+        object_cases = [("case-tag-of-blob.txt, a tag straight at a blob", tag_of_blob),
+                        ("case-tag-of-blob.txt, an annotated tag of the blob", annotated_of_blob),
+                        ("case-nested-tag.txt, only the inner tag of a nested pair", nested)]
+        for i, (label, make) in enumerate(object_cases):
+            repo = new_repo(base, f"object{i}.repo")
+            commit_file(repo, "notes.txt", clean, "Start the notes")
+            ref, oid = make(repo)
+            expect("other", f"{label} --prepush", ["--prepush"], 1, repo, f"{ref} {oid} {ref} {ZERO}\n")
+            expect("other", f"{label} --history", ["--history", "."], 1, repo)
+
+        print("-- a git warning on exit 0 is can't tell")
+        repo = new_repo(base, "warning.repo")
+        tip = commit_file(repo, "notes.txt", clean, "Start the notes")
+        sg(repo, "update-ref", "refs/heads/HEAD", tip)  # a branch named HEAD: git warns, exits 0
+        expect("other", "a ref named HEAD, --tree", ["--tree"], 2, repo, grep="warned")
+
         print("-- the MANIFEST may name only the sample list and the fixtures folder")
         repo = new_repo(base, "manifest.repo")
         os.makedirs(os.path.join(repo, "checks", "tests", "push_scan"))
@@ -663,12 +752,22 @@ def selftest():
         commit_file(clone, "plant-01-tip.txt", fixture("plant-01-tip.txt", True), "Add a note")
         p2 = subprocess.run(["git", "push", "-q", "origin", "main"], cwd=clone, env=scratch_env(),
                             capture_output=True)
+        object_refused = []
+        for label, make in object_cases:
+            ref, oid = make(clone)
+            p3 = subprocess.run(["git", "push", "-q", "origin", ref], cwd=clone, env=scratch_env(),
+                                capture_output=True)
+            landed = subprocess.run(["git", "rev-parse", "--verify", "-q", ref], cwd=remote,
+                                    env=scratch_env(), capture_output=True).returncode == 0
+            object_refused.append(p3.returncode != 0 and not landed)
         remote_tip = sg(remote, "rev-parse", "main")
         clean_ok = p1.returncode == 0
         refused = p2.returncode != 0 and remote_tip != sg(clone, "rev-parse", "HEAD")
-        results["other"] += [clean_ok, refused]
+        results["other"] += [clean_ok, refused] + object_refused
         print(f"{'ok  ' if clean_ok else 'FAIL'} · hook: a clean push goes through")
         print(f"{'ok  ' if refused else 'FAIL'} · hook: a push carrying a sample word is refused")
+        for (label, _), ok in zip(object_cases, object_refused):
+            print(f"{'ok  ' if ok else 'FAIL'} · hook: a push of {label} is refused")
     finally:
         shutil.rmtree(base, ignore_errors=True)
 

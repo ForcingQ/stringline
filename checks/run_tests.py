@@ -2,8 +2,9 @@
 """run_tests · finds every self-test in the tree, runs each, and proves the tree is left alone.
 
 What it compares: each test's exit code against its last line (`selftest: PASS` or
-`selftest: FAIL`); every fixtures folder against the tests found; and the tree's state (`git
-status --porcelain --ignored --untracked-files=all`) before the run against after it.
+`selftest: FAIL`); every fixtures folder against the tests found; the tree's state (`git
+status --porcelain --ignored --untracked-files=all`) and a fingerprint of the hooks folder
+(`git rev-parse --git-path hooks`: names, sizes, hashes) before the run against after it.
 How it is fired: on every push and pull request by .github/workflows/checks.yml, and by hand,
 `python3 checks/run_tests.py`. A test is a tracked file at checks/<name>.py, tools/<name>.py,
 tools/<id>/<main>.py or render.py whose text holds the flag --selftest (nothing under a tests/
@@ -12,12 +13,14 @@ with PYTHONDONTWRITEBYTECODE=1, at most 300 seconds.
 The failure that earned it: a list of tests kept by hand beside the tests drifts, and the drift
 is a test that nothing runs, the most repeated gap in the owner's earlier work.
 Its twin: zero tests found is RED. The runner always finds itself, so on the real tree the twin
-cannot fire; the blindness that can is a test the pattern missed, so a fixtures folder
-(checks/tests/<name>/, tools/<id>/tests/) with no test found for it is RED, naming the folder.
+cannot fire; the blindness that can is a test the pattern missed, so a fixtures folder in any of
+three shapes (checks/tests/<name>/ for checks/<name>.py, tools/<id>/tests/ for a main file in
+tools/<id>/, tools/tests/<name>/ for tools/<name>.py) with no test found is RED, naming it.
 What it does not prove: that a test tests the right thing (each one's fixtures and reviewers do
 that). A write into a path that was already dirty before the run is not seen; the line says how
-many paths were dirty. __pycache__/ paths are left out of the comparison, since an import may
-write them whatever a test does.
+many paths were dirty. Paths with a part named exactly __pycache__ are left out of the comparison,
+since an import may write them whatever a test does. Of .git/, only the hooks folder is watched;
+the rest of it is not. A crash is a non-zero exit whose standard error ends in a traceback.
 
 One line per test: `PASS · <file>`, `FAIL · <file> · <last line>` or `CAN'T TELL · <file> · <why>`
 (exit 2 or any other code, a crash, a timeout, no output, or a last line that disagrees with the
@@ -26,6 +29,7 @@ folder has no test, the tree changed, or no test was found; else 2 if any can't 
   run_tests.py [--root DIR]    DIR defaults to the folder above checks/
   run_tests.py --selftest      fixture tests from checks/tests/run_tests/, in scratch trees
 """
+import hashlib
 import os
 import re
 import shutil
@@ -77,7 +81,9 @@ def orphans(tracked, tests):
         p = f.split("/")
         if len(p) >= 4 and p[0] == "checks" and p[1] == "tests":
             folders.add(("checks/tests/" + p[2] + "/", f"checks/{p[2]}.py"))
-        if len(p) >= 4 and p[0] == "tools" and p[2] == "tests":
+        if len(p) >= 4 and p[0] == "tools" and p[1] == "tests":
+            folders.add(("tools/tests/" + p[2] + "/", f"tools/{p[2]}.py"))
+        elif len(p) >= 4 and p[0] == "tools" and p[2] == "tests":
             folders.add(("tools/" + p[1] + "/tests/", f"tools/{p[1]}/"))
     found = []
     for folder, owner in sorted(folders):
@@ -92,7 +98,37 @@ def orphans(tracked, tests):
 
 def status(root):
     out = git(root, "status", "--porcelain", "--ignored", "--untracked-files=all")
-    return {l for l in out.splitlines() if l.strip() and "__pycache__/" not in l}
+    return {l for l in out.splitlines()
+            if l.strip() and "__pycache__" not in re.split(r"[/ ]", l[3:])}
+
+
+def hooks_print(root):
+    """Names, sizes and hashes of every file in the hooks folder, which git status cannot see."""
+    rel = git(root, "rev-parse", "--git-path", "hooks").strip()
+    folder = os.path.join(root, rel)
+    seen = set()
+    for dirpath, _, names in os.walk(folder):
+        for n in names:
+            full = os.path.join(dirpath, n)
+            try:
+                with open(full, "rb") as f:
+                    digest = hashlib.sha256(f.read()).hexdigest()[:16]
+                seen.add((os.path.join(rel, os.path.relpath(full, folder)), os.path.getsize(full), digest))
+            except OSError as e:
+                raise CantTell(f"could not read {full}: {e.strerror}")
+    return seen
+
+
+def ends_in_traceback(stderr):
+    """True when standard error ends in a traceback: after the last traceback header, every line
+    is indented except the last, the exception line."""
+    lines = [l for l in stderr.rstrip().splitlines() if l.strip()]
+    heads = [i for i, l in enumerate(lines) if l.startswith("Traceback (most recent call last):")]
+    if not heads or heads[-1] == len(lines) - 1:
+        return False
+    tail = lines[heads[-1] + 1:]
+    flush = [i for i, l in enumerate(tail) if not l[:1].isspace()]
+    return flush == [len(tail) - 1]
 
 
 def run_one(root, test):
@@ -107,7 +143,7 @@ def run_one(root, test):
     out = [l for l in p.stdout.splitlines() if l.strip()]
     err = p.stderr.strip().splitlines()
     code = p.returncode
-    if code != 0 and "Traceback (most recent call last):" in p.stderr:
+    if code != 0 and ends_in_traceback(p.stderr):
         return f"CAN'T TELL · {test} · crashed, exit {code}: {err[-1] if err else ''}", 2
     if not out:
         return f"CAN'T TELL · {test} · printed nothing, exit {code}", 2
@@ -128,6 +164,7 @@ def run(root):
     try:
         tracked = set(git(root, "ls-files", "-z").split("\0")) - {""}
         before = status(root)
+        hooks_before = hooks_print(root)
         tests = discover(root, tracked)
         counts = {0: 0, 1: 0, 2: 0}
         for t in tests:
@@ -135,6 +172,7 @@ def run(root):
             counts[code] += 1
             lines.append(line)
         after = status(root)
+        hooks_after = hooks_print(root)
     except CantTell as e:
         return lines + [f"CAN'T TELL · the runner could not look: {e}"], 2
     for folder in orphans(tracked, tests):
@@ -143,12 +181,16 @@ def run(root):
     for change in sorted(after ^ before):
         lines.append(f"RED · the tree changed during the run: {change}")
         red = True
+    for path in sorted({h[0] for h in hooks_after ^ hooks_before}):
+        lines.append(f"RED · the hooks folder changed during the run: {path}")
+        red = True
     if not tests:
         lines.append("RED · no test found: a runner that finds nothing is blind")
         red = True
     dirty = f" · tree dirty before the run: {len(before)} paths" if before else " · tree clean before"
     lines.append(f"ran {len(tests)} · passed {counts[0]} · failed {counts[1]} · can't tell"
-                 f" {counts[2]}{dirty} · __pycache__/ left out of the tree comparison")
+                 f" {counts[2]}{dirty} · __pycache__/ left out of the tree comparison · hooks folder"
+                 f" watched, the rest of .git/ not")
     red = red or counts[1] > 0
     cant = counts[2] > 0
     return lines, (1 if red else 2 if cant else 0)
@@ -182,6 +224,12 @@ def selftest():
          "read by the exit code"),
         ("a failing test: plant-fail.py", one("plant-fail.py"), 1, "FAIL · checks/case.py"),
         ("a crash with exit 1: plant-crash.py", one("plant-crash.py"), 2, "crashed, exit 1"),
+        ("a handled traceback, then an honest FAIL: plant-handled-traceback.py",
+         one("plant-handled-traceback.py"), 1, "FAIL · checks/case.py · selftest: FAIL"),
+        ("a test that installs a hook: plant-installs-hook.py", one("plant-installs-hook.py"), 1,
+         "the hooks folder changed during the run: .git/hooks/pre-push"),
+        ("a write into notes__pycache__/: plant-pycache-lookalike.py",
+         one("plant-pycache-lookalike.py"), 1, "?? notes__pycache__/left.txt"),
         ("a death on a signal: plant-signal.py", one("plant-signal.py"), 2, "CAN'T TELL · checks/case.py"),
         ("a silent test: plant-silent.py", one("plant-silent.py"), 2, "printed nothing"),
         ("exit 0, last line FAIL: plant-disagree.py", one("plant-disagree.py"), 2, "disagrees"),
@@ -192,7 +240,8 @@ def selftest():
          "the tree changed during the run: !! state/run.json"),
         ("a fixtures folder with no test: plant-orphan-fixture.txt",
          {"checks/case.py": "control-pass.py", "checks/tests/lonely/a.txt": "plant-orphan-fixture.txt",
-          "tools/demo/tests/a.txt": "plant-orphan-fixture.txt"}, 1,
+          "tools/demo/tests/a.txt": "plant-orphan-fixture.txt",
+          "tools/tests/lonely/a.txt": "plant-orphan-fixture.txt"}, 1,
          "checks/tests/lonely/ is a fixtures folder with no test"),
         ("zero tests, a helper without the flag (the twin): twin-helper.py",
          {"checks/helper.py": "twin-helper.py"}, 1, "no test found"),
@@ -204,7 +253,8 @@ def selftest():
             joined = "\n".join(lines)
             ok = code == want and text in joined
             if "fixtures folder" in label:
-                ok = ok and "tools/demo/tests/ is a fixtures folder with no test" in joined
+                ok = (ok and "tools/demo/tests/ is a fixtures folder with no test" in joined
+                      and "tools/tests/lonely/ is a fixtures folder with no test" in joined)
             ok_all &= ok
             shown = next((l for l in lines if text in l), lines[0] if lines else "(no line)")
             print(f"{'ok  ' if ok else 'FAIL'} · {label} · want {want}, got {code} · {shown}")

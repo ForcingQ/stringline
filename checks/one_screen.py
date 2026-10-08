@@ -11,14 +11,14 @@ earlier manuals, and a page that grew past a screen was noticed only when a read
 Its twin: zero files found is RED, never green: a check that finds nothing to read is blind.
 What it does not prove: how many screen rows a page takes when its long lines wrap; that a page
 is clear. It does not read code files, run rows (runs/) or anything below the top folder except
-manual/, and its line says so. It reads the working files, tracked or not.
+manual/, and its line says so. It reads the working files, tracked or not, dot-named ones included.
+A bare carriage return is not a line ending, by the definition above (a named limit).
 
 Output, one line: `GREEN · read <n> files ...`, `RED: <file>: <count> source lines ...` or
 `CAN'T TELL: <what it could not read>`; exit 0, 1 or 2.
   one_screen.py [--root DIR]     DIR defaults to the folder above checks/
   one_screen.py --selftest       its committed fixtures in checks/tests/one_screen/
 """
-import glob
 import os
 import shutil
 import sys
@@ -36,8 +36,12 @@ def count_lines(path):
 
 
 def run(root):
-    files = sorted(p for p in glob.glob(os.path.join(root, "*.md")) if not os.path.isdir(p))
-    files += sorted(glob.glob(os.path.join(root, "manual", "**", "*.toml"), recursive=True))
+    # listdir and walk, not glob: glob skips names that open with a dot
+    files = sorted(os.path.join(root, n) for n in os.listdir(root)
+                   if n.endswith(".md") and not os.path.isdir(os.path.join(root, n)))
+    for dirpath, dirnames, names in os.walk(os.path.join(root, "manual")):
+        dirnames.sort()
+        files += sorted(os.path.join(dirpath, n) for n in names if n.endswith(".toml"))
     if not files:
         return f"RED: found zero files (top-folder *.md, manual/**/*.toml): blind · {NOT_READ}", 1
     over, cant = [], []
@@ -64,7 +68,8 @@ def run(root):
 def selftest():
     fix = os.path.join(HERE, "tests", "one_screen")
     cases = [("plant-61-lines", 1), ("plant-unterminated", 1), ("plant-manual-deep", 1),
-             ("control-60-lines", 0), ("twin-no-files", 1)]
+             ("plant-dot-page", 1), ("control-60-lines", 0), ("control-bare-cr", 0),
+             ("twin-no-files", 1)]
     ok_all = True
     for name, want in cases:
         line, code = run(os.path.join(fix, name))

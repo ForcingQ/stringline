@@ -3,7 +3,9 @@
 
 What it compares: each check's printed state (its one line, opening GREEN, RED or CAN'T TELL)
 against the exit code it gave (0, 1, 2). A check that is missing, crashes, prints nothing, prints
-more than one line, or whose line and exit code disagree is CAN'T TELL, never green.
+more than one line, or whose line and exit code disagree is CAN'T TELL, never green. Exit 0 is
+never trusted alone: anything on standard error with exit 0 is CAN'T TELL, and a line must open
+with exactly `GREEN · `, `RED: ` or `CAN'T TELL: `.
 How it is fired: on every push and pull request by .github/workflows/checks.yml, and by hand,
 `python3 checks/run_all.py`. It reports; nothing merges or refuses on it.
 The failure that earned it: a correct check that nothing runs, the most repeated gap in the
@@ -34,6 +36,7 @@ CHECKS = [  # the fixed list: (number, name, file, arguments)
     (5, "private words", "checks/push_scan.py", ["--tree"]),
 ]
 STATES = {0: "GREEN", 1: "RED", 2: "CAN'T TELL"}
+OPENINGS = {"GREEN": "GREEN · ", "RED": "RED: ", "CAN'T TELL": "CAN'T TELL: "}  # exact, nothing looser
 TIMEOUT = 300
 
 
@@ -57,8 +60,10 @@ def one(root, number, name, rel, args):
         return f"CAN'T TELL: {rel} printed nothing (exit {p.returncode}) {tag}", 2
     if len(lines) > 1:
         return f"CAN'T TELL: {rel} printed {len(lines)} lines, not one (exit {p.returncode}) {tag}", 2
+    if p.returncode == 0 and err:
+        return f"CAN'T TELL: {rel} exited 0 with standard error: {err[0]} {tag}", 2
     line = lines[0]
-    state = next((s for s in ("GREEN", "RED", "CAN'T TELL") if line.startswith(s)), None)
+    state = next((s for s, opening in OPENINGS.items() if line.startswith(opening)), None)
     if state is None or STATES.get(p.returncode) != state:
         return (f"CAN'T TELL: {rel} printed {state or 'no state'} and exited {p.returncode}:"
                 f" they disagree {tag}"), 2
@@ -99,6 +104,10 @@ def selftest():
          (4, "2 lines")),
         ("an honest can't tell passes through: cant-tell-honest.py",
          [g, "cant-tell-honest.py", g, g, g], 2, (1, "the fixture could not look")),
+        ("check 4 exits 0 with standard error: plant-stderr-on-green.py",
+         [g, g, g, "plant-stderr-on-green.py", g], 2, (3, "exited 0 with standard error")),
+        ("check 5 opens GREENISH: plant-greenish.py", [g, g, g, g, "plant-greenish.py"], 2,
+         (4, "no state")),
         ("red outranks can't tell: plant-red.py beside a missing check",
          ["plant-red.py", g, None, g, g], 1, (0, "RED: fixture")),
     ]
