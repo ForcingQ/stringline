@@ -1,0 +1,1 @@
+{"type": "user", "timestamp": "2026-01-01T10:01:00.000Z", "promptSource": "typed", "message": {"role": "user", "content": "here is the file:\n<pasted_content>\nline one\nline two\n</pasted_content>\nwhat do you think of it"}}

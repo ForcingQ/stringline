@@ -1,0 +1,3 @@
+{"type": "user", "timestamp": "2026-01-01T10:01:00.000Z", "promptSource": "typed", "message": {"role": "user", "content": "[Request interrupted by user]"}}
+{"type": "user", "timestamp": "2026-01-01T10:02:00.000Z", "promptSource": "typed", "message": {"role": "user", "content": "[Request interrupted by user for tool use]\ncarry on with the list"}}
+{"type": "user", "timestamp": "2026-01-01T10:03:00.000Z", "promptSource": "typed", "message": {"role": "user", "content": "[a bracketed note] stays as typed"}}

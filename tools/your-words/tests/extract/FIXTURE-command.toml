@@ -1,0 +1,4 @@
+# synthetic session record, written for this fixture; no real record is read
+exit = 0
+counts = { messages = 1, nothing_typed = 2 }
+out = "now the real question\n"

@@ -1,0 +1,3 @@
+outcomes = { corrected = 1 }
+exit = 0
+contains = ["writen → written (edit)", "the → The (case)", "2 spaces → one space (spacing)"]

@@ -1,0 +1,4 @@
+# synthetic session record, written for this fixture; no real record is read
+exit = 0
+counts = { messages = 2, nothing_typed = 1 }
+out = "carry on with the list\n\n[a bracketed note] stays as typed\n"

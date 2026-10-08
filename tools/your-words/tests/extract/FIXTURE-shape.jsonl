@@ -1,0 +1,5 @@
+{"type": "user", "timestamp": "2026-01-01 10:00:00.000Z", "promptSource": "typed", "message": {"role": "user", "content": "a space for the T"}}
+{"type": "user", "timestamp": "20260101T100000.000Z", "promptSource": "typed", "message": {"role": "user", "content": "the compact form"}}
+{"type": "user", "timestamp": "2026-01-01T10:00:00.000+01:00", "promptSource": "typed", "message": {"role": "user", "content": "an offset"}}
+{"type": "user", "timestamp": "2026-W01-4T10:00:00.000Z", "promptSource": "typed", "message": {"role": "user", "content": "a week date"}}
+{"type": "user", "timestamp": "2026-01-01T10:05:00.000Z", "promptSource": "typed", "message": {"role": "user", "content": "the readable rest"}}

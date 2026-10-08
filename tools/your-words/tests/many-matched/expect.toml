@@ -1,0 +1,4 @@
+# exact wins, and the line counts both messages that hold it
+outcomes = { exact = 1 }
+exit = 0
+contains = ["message 2 (2 matched)"]

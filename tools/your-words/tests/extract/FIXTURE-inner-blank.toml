@@ -1,0 +1,5 @@
+# synthetic session record, written for this fixture; no real record is read
+exit = 0
+counts = { messages = 1, edge_blank_dropped = 2, inner_blank_kept = 1 }
+out = "first paragraph\n\nsecond paragraph\n"
+times = "block 1 · 2026-01-01T10:01:00.000Z · tools/your-words/tests/extract/FIXTURE-inner-blank.jsonl:1 · later: 0 (typed 0 · pasted 0 · quoted back 0)\nblock 2 · 2026-01-01T10:01:00.000Z · tools/your-words/tests/extract/FIXTURE-inner-blank.jsonl:1 · later: 0 (typed 0 · pasted 0 · quoted back 0)\n"

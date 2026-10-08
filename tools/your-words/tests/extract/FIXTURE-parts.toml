@@ -1,0 +1,5 @@
+# synthetic session record, written for this fixture; no real record is read
+exit = 0
+counts = { messages = 1, parts_skipped = 1 }
+out = "the first half  of a sentense and its end\n"
+contains = ["parts skipped: image 1"]

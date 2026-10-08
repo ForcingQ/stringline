@@ -1,10 +1,10 @@
 id = "your-words"
 name = "your words"
 status = "building"
-what = "Checks every quote of a person's own words on a page against the messages they typed, and says exact, corrected, absent or can't check."
+what = "Checks every quote of a person's own words on a page against the messages they typed, saying exact, corrected, absent or can't check; its second half, the extractor, pulls those typed messages out of a Claude Code session record."
 first = "python3 tools/your-words/your_words.py --selftest --no-log"
 gotcha = "It checks the words, not the meaning: a one-letter change that flips the sense, such as strong to wrong, still reads corrected, so read the change it shows."
 earned_by = "A checker that filed what it could not check as not found."
-files = []
+files = ["tools/your-words/your_words.py", "tools/your-words/extract.py", "tools/runlog.py"]
 catching = ["exact", "corrected", "absent", "cant_check"]
 verified_against = ""

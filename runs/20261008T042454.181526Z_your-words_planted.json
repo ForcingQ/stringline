@@ -1,0 +1,25 @@
+{
+  "tool": "your-words",
+  "started": "2026-10-08T04:24:54.181526Z",
+  "kind": "planted",
+  "planted_by": "selftest",
+  "invoked_by": "selftest",
+  "read": [
+    "fixture"
+  ],
+  "compared_against": [],
+  "outcomes": {
+    "messages": 31,
+    "later": 4,
+    "nothing_typed": 5,
+    "harness_skipped": 2,
+    "events_skipped": 2,
+    "parts_skipped": 3,
+    "edge_blank_dropped": 3,
+    "inner_blank_kept": 1,
+    "cant_read": 4
+  },
+  "caught": [],
+  "could_not": [],
+  "tool_version": "1a045e08442252d413ea83f7a3db18d394a38991"
+}

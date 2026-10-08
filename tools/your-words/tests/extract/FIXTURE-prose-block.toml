@@ -1,0 +1,4 @@
+# synthetic session record, written for this fixture; no real record is read
+exit = 0
+counts = { messages = 1 }
+out = "the tag <pasted_content> marks a paste\n"

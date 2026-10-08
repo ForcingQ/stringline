@@ -1,0 +1,5 @@
+# the log refuses the row, and a quote is absent: the spec's exit is 1 when any quote is
+# absent, even if others could not be checked; the refusal is named under could not see
+mode = "real-run"
+exit = 1
+contains = ["ABSENT", "could not see: the run log refused this run's row (RealReadFixture"]

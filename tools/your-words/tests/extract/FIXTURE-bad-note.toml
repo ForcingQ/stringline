@@ -1,0 +1,5 @@
+# a --planted note holding a byte that is not UTF-8: the writer refuses it with a
+# named error; one line, exit 2, no row and no output left
+mode = "bad-note"
+records = ["FIXTURE-string.jsonl"]
+contains = ["NotUnicode"]

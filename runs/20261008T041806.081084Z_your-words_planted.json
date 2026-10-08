@@ -1,0 +1,31 @@
+{
+  "tool": "your-words",
+  "started": "2026-10-08T04:18:06.081084Z",
+  "kind": "planted",
+  "planted_by": "selftest",
+  "invoked_by": "selftest",
+  "read": [
+    "fixture"
+  ],
+  "compared_against": [
+    "fixture"
+  ],
+  "outcomes": {
+    "exact": 3,
+    "corrected": 3,
+    "absent": 7,
+    "cant_check": 5,
+    "spoken": 1
+  },
+  "caught": [
+    "fixture absent: 1 absent",
+    "fixture dont: 1 absent",
+    "fixture edge: 1 absent",
+    "fixture insertion: 1 absent",
+    "fixture looser: 1 absent",
+    "fixture negation: 1 absent",
+    "fixture splice: 1 absent"
+  ],
+  "could_not": [],
+  "tool_version": "84d2ff1c761b48451a97a7886d66027bc5d89785"
+}

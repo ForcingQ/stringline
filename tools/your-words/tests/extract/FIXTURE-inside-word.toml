@@ -1,0 +1,5 @@
+# synthetic session record, written for this fixture; no real record is read
+exit = 0
+counts = { messages = 4 }
+out = "no\n\nI know the answer\n\ncan\n\nI can't say yet\n"
+contains = ["1 · 2026-01-01T10:01:00.000Z · no · later: 0", "3 · 2026-01-01T10:03:00.000Z · can · later: 0"]

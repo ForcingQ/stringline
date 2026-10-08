@@ -1,0 +1,4 @@
+words = "words.bin"
+outcomes = { cant_check = 1 }
+exit = 2
+contains = ["not UTF-8"]
