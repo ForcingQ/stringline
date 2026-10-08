@@ -1,0 +1,1 @@
+{"type": "user", "timestamp": "2026-01-01T10:01:00.000Z", "promptSource": "typed", "message": {"role": "user", "content": "<pasted_content> opens a paste\nand </pasted_content closes it, I think\nso a -> b is typed\nlast line"}}

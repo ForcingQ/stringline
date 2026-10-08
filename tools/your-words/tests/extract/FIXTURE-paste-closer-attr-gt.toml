@@ -1,0 +1,5 @@
+# synthetic session record, written for this fixture; no real record is read
+# a > inside a quoted attribute of the closing tag does not end the tag
+exit = 0
+counts = { messages = 1 }
+out = "see\nstill typed\n"

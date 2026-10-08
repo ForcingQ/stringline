@@ -38,7 +38,10 @@ removed, as the harness's would be; a tag typed mid-line with no attribute, or
 with no closing tag, is kept. Removal runs to the first closing tag (a block
 whose body holds its own closing tag is not proven); a closing tag may carry
 attributes, as a real record's paste does (its id is repeated there), a shape
-no fixture held until a real run let six pasted blocks through as typed. Limit: --out and --times
+no fixture held until a real run let six pasted blocks through as typed. A tag,
+opening or closing, sits on one line, and a > inside a double-quoted attribute
+does not end it; a tag broken across lines is not a tag here and is kept. A
+closing tag's id is not compared with the opening tag's. Limit: --out and --times
 are compared as one name after Unicode composition and then case folding, not
 composed again after; a few Greek letters with two accents (U+0390, U+03B0 and
 their kin) against their capitals are one file to some file systems and two
@@ -101,6 +104,9 @@ def parse_stamp(value):
         raise CantRead("timestamp of another shape") from None
 
 
+TAG_REST = re.compile(r'''(?:"[^"\n]*"|[^>"\n])*>''')  # the rest of a tag, to its >
+
+
 def remove_blocks(text):
     """(text with the harness's blocks removed, [removed pasted_content bodies])."""
     pastes = []
@@ -114,12 +120,16 @@ def remove_blocks(text):
         name, start = m.group(1), m.start()
         line_start = text.rfind("\n", 0, start) + 1
         at_line_start = text[line_start:start].strip() == ""
-        tag_end = text.find(">", m.end(1))
+        # a tag sits on one line; a > inside a quoted attribute does not end it
+        opened = TAG_REST.match(text, m.end(1))
+        tag_end = opened.end() - 1 if opened else -1
         has_attr = m.group(2) == " " and tag_end > m.end(2) and \
             text[m.end(2):tag_end].strip() != ""
         # a closing tag is bare, or carries attributes: a real record repeats a
-        # paste's id in it (</pasted_content id="...">); a longer name is no closer
-        closer = re.compile(r"</" + re.escape(name) + r"(?:\s[^>]*)?>").search(text, start)
+        # paste's id in it (</pasted_content id="...">); a longer name is no closer.
+        # It is looked for after the opening tag, never inside it.
+        closer = re.compile(r"</" + re.escape(name) + r"(?=[ \t>])" + TAG_REST.pattern
+                            ).search(text, tag_end + 1) if tag_end >= 0 else None
         close = closer.start() if closer else -1
         if tag_end < 0 or close < 0 or not (at_line_start or has_attr):
             pos = m.end(1)

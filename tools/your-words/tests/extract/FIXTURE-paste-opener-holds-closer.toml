@@ -1,0 +1,5 @@
+# synthetic session record, written for this fixture; no real record is read
+# closing-tag text inside the opening tag's own attribute is not the closer: the search starts after the opening tag
+exit = 0
+counts = { messages = 1 }
+out = "see\nstill typed\n"

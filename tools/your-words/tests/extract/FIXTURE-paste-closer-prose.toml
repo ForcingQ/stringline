@@ -1,0 +1,5 @@
+# synthetic session record, written for this fixture; no real record is read
+# a closing tag sits on one line: the name typed in prose with a later > on another line closes nothing, all kept
+exit = 0
+counts = { messages = 1 }
+out = "<pasted_content> opens a paste\nand </pasted_content closes it, I think\nso a -> b is typed\nlast line\n"
