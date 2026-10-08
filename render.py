@@ -21,8 +21,9 @@ that is not there; any file in the fonts folder, whatever its ending, with no
 LICENSE-<face>.txt beside it (the face is its name up to the first hyphen or full stop), or no
 NOTICE.txt (a face never ships bare); a folder that cannot be read. And one gate over every read: a symbolic link
 anywhere under manual/, the folder itself included, is refused, because a followed link could
-publish a file from elsewhere on the machine. Not seen by that gate: a hard link, which is a
-file like any other. Dot-files and
+publish a file from elsewhere on the machine; and when a released card needs its caught line,
+the same for the run log: tools/, tools/runlog.py, runs/ and every row. Not seen by either: a
+hard link, which is a file like any other; render.py itself being a link. Dot-files and
 sub-folders there are skipped. The front page lists the rooms: each room's title and the first
 block of its body, whole. The current room is marked in the nav with aria-current.
 In place, site/ is wholly derived and is replaced; under `--out <dir>` it writes only the files
@@ -118,6 +119,21 @@ def no_links(manual):
             if os.path.islink(path):
                 rel = os.path.relpath(path, manual).replace(os.sep, '/')
                 raise RenderError(f'manual/{rel}: a link, not a file or folder')
+
+
+def no_links_in_log(root):
+    """The same gate for the one read outside manual/: a card's caught line comes from the run
+    log, so the log's module, the folder it sits in, the runs folder and every row are looked at
+    too. A row reached through a link would put another file's words on a published card."""
+    for rel in ('tools', 'tools/runlog.py', 'runs'):
+        if os.path.islink(os.path.join(root, *rel.split('/'))):
+            raise RenderError(f'{rel}: a link, not a file or folder')
+    runs = os.path.join(root, 'runs')
+    for d, dirs, files in os.walk(runs, followlinks=False):
+        for name in sorted(dirs + files):
+            if os.path.islink(os.path.join(d, name)):
+                rel = os.path.relpath(os.path.join(d, name), root).replace(os.sep, '/')
+                raise RenderError(f'{rel}: a link, not a file or folder')
 
 
 def load_corpus(manual):
@@ -271,6 +287,7 @@ def page(site, title, body_html, depth, current=None):
 
 def runlog_caught_line():
     """The card's fourth field comes from tools/runlog.py; it is imported here, never copied."""
+    no_links_in_log(ROOT)
     sys.path.insert(0, os.path.join(ROOT, 'tools'))
     try:
         import runlog
@@ -552,6 +569,10 @@ def selftest_cases(case):
                  lambda d: (os.rename(os.path.join(d, 'terms'), os.path.join(d, 'kept-terms')),
                             os.symlink('kept-terms', os.path.join(d, 'terms'))),
                  'manual/terms: a link'),
+                ('manual/ itself a link',
+                 lambda d: (os.rename(d, d + '-kept'), os.symlink(d + '-kept', d),
+                            os.makedirs(os.path.join(d + '-kept', 'look', 'fonts'), exist_ok=True)),
+                 'manual: a link, not a folder'),
                 ('a link in a folder the renderer never reads',
                  lambda d: (os.makedirs(os.path.join(d, 'FIXTURE-other')),
                             os.symlink('nowhere', os.path.join(d, 'FIXTURE-other', 'FIXTURE-broken'))),
@@ -568,8 +589,41 @@ def selftest_cases(case):
             except RenderError as e:
                 case(f'the look: {label} is refused', needle in str(e) and tmp not in str(e))
             finally:
-                if not os.path.islink(os.path.join(broken, 'look', 'fonts')):
+                if not os.path.islink(broken) and not os.path.islink(os.path.join(broken, 'look', 'fonts')):
                     os.chmod(os.path.join(broken, 'look', 'fonts'), 0o755)
+
+        for label, plant, needle in (
+                ('a run row that is a link', lambda r: os.symlink('/nowhere/FIXTURE-row.json', os.path.join(
+                    r, 'runs', 'FIXTURE-row.json')), 'runs/FIXTURE-row.json: a link'),
+                ('the runs folder a link', lambda r: (os.rmdir(os.path.join(r, 'runs')), os.symlink(
+                    'FIXTURE-elsewhere', os.path.join(r, 'runs'))), 'runs: a link'),
+                ('the log module a link', lambda r: os.symlink('FIXTURE-other.py', os.path.join(
+                    r, 'tools', 'runlog.py')), 'tools/runlog.py: a link')):
+            root = os.path.join(tmp, 'log-' + re.sub(r'\W+', '-', label))
+            os.makedirs(os.path.join(root, 'runs'))
+            os.makedirs(os.path.join(root, 'tools'))
+            try:
+                no_links_in_log(root)
+                clean = True
+            except RenderError:
+                clean = False
+            plant(root)
+            try:
+                no_links_in_log(root)
+                case(f'the run log: {label} is refused', False)
+            except RenderError as e:
+                case(f'the run log: {label} is refused', clean and needle in str(e) and tmp not in str(e))
+
+        # the gate is called where the log is read, not only defined
+        real_root = ROOT
+        globals()['ROOT'] = root  # the last planted root above: its log module is a link
+        try:
+            runlog_caught_line()
+            case('the run log\'s gate runs before the log is read for a card', False)
+        except RenderError as e:
+            case('the run log\'s gate runs before the log is read for a card', 'a link' in str(e))
+        finally:
+            globals()['ROOT'] = real_root
 
         keep = os.path.join(tmp, 'keep')
         os.makedirs(os.path.join(keep, 'site'))
