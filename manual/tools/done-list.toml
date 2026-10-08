@@ -1,0 +1,9 @@
+id = "done-list"
+name = "done list"
+status = "building"
+what = "Checks a finished list of numbered items, each tagged by how it is proven, and as a Claude Code Stop hook keeps an agent working while items are still open."
+first = "python3 tools/done-list/done_list.py --selftest --no-log"
+gotcha = "A check that already passes before the work starts measures nothing, so run check with --before-work on every new list."
+earned_by = "A list written in a shape its own checker could not read, and a line that passed before any work was done."
+files = []
+verified_against = ""
