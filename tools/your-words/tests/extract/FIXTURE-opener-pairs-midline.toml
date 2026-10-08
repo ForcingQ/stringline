@@ -1,0 +1,5 @@
+# synthetic session record, written for this fixture; no real record is read
+# the twin: a real opening tag mid-line, with name=value pairs, still opens its block
+exit = 0
+counts = { messages = 1 }
+out = "look at  and tell me\n"

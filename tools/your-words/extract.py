@@ -33,7 +33,18 @@ person's own screen, never in a file. A lone surrogate anywhere in a typed
 event, even inside a paste that would be removed, makes the whole event can't
 read. Anything unhandled is caught at the entry point: one line under could
 not see, exit 2, no row, no output left. Words a person types as a slash command or its arguments
-go with the command. A block typed at a line's start with its closing tag is
+go with the command. One rule reads both tags: after a tag's name come
+name=value pairs only (a value in double or single quotes, or one bare word).
+A word after an opening tag's name (<name block>) is prose, as it is in a
+closing tag, so that is no opening tag, at a line's start or inside a line: it
+once opened a block, and everything typed from there to the next real closing
+tag of that name was removed, unseen and uncounted. Limits, named and not
+mended: an opening tag that is not that shape is not a tag here, so a paste
+under one stays in the output whole and is NOT counted as left whole (count 0);
+two such shapes are a > inside a single-quoted value on the opening tag, which
+ends the tag early where it is looked for, and a loose apostrophe before a
+single-quoted id. After any real run, look for a tag line left in the output.
+A block typed at a line's start with its closing tag is
 removed, as the harness's would be; a tag typed mid-line with no attribute, or
 with no closing tag, is kept. When the opening tag has an id, removal runs to
 the first closing tag that carries the same id, as a real record's paste does
@@ -120,6 +131,8 @@ TAG_REST = re.compile(r'''(?:"[^"\n]*"|[^>"\n])*>''')  # the rest of a tag, to i
 # word), then >. Prose after the name is not an attribute, so it closes nothing.
 CLOSER_REST = (r'''(?:[ \t]+[A-Za-z_][\w:.-]*=(?:"[^"\n]*"|'[^'\n]*'|[^\s"'<>=]+))*'''
                r"[ \t]*>")
+# the same rule for an opening tag: after its name, name=value pairs only
+OPENER_PAIRS = re.compile(CLOSER_REST[:-1])  # the closing tag's pairs, without the final >
 
 # a tag's attributes, read pair by pair, so a quoted value is taken whole and
 # the letters id= inside another attribute's value are never an id
@@ -168,8 +181,14 @@ def remove_blocks(text):
         # a tag sits on one line; a > inside a quoted attribute does not end it
         opened = TAG_REST.match(text, m.end(1))
         tag_end = opened.end() - 1 if opened else -1
-        has_attr = m.group(2) == " " and tag_end > m.end(2) and \
-            text[m.end(2):tag_end].strip() != ""
+        # one rule for both tags: after the name, only name=value pairs. A word after an
+        # opening tag's name (<name block>) is prose, as it is in a closing tag, so that is
+        # no opening tag, at a line's start or inside a line, and nothing after it is removed
+        # on its account.
+        if tag_end < 0 or not OPENER_PAIRS.fullmatch(text, m.end(1), tag_end):
+            pos = m.end(1)
+            continue
+        has_attr = text[m.end(1):tag_end].strip() != ""
         # a closing tag is looked for after the opening tag, never inside it; a
         # longer name is no closer. When the opening tag has an id, only a closing
         # tag with that id closes it (a real record repeats a paste's id there):

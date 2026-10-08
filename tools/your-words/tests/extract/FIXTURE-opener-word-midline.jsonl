@@ -1,0 +1,1 @@
+{"type": "user", "timestamp": "2026-01-01T10:01:00.000Z", "promptSource": "typed", "message": {"role": "user", "content": "I keep seeing the <system-reminder block> in my records and want it gone\nplease keep these typed words\n<system-reminder>\nFIXTURE harness words\n</system-reminder>"}}
