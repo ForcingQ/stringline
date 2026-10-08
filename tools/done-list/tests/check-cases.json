@@ -1,0 +1,184 @@
+[
+ {
+  "label": "five tags, one of each state",
+  "list": "01-five-tags.md",
+  "exit": 1,
+  "expect": [
+   "#1 DONE",
+   "#2 NOT DONE (exit 1)",
+   "#3 CAN'T TELL (could not start (exit 127))",
+   "#4 YOURS · words at words-present.txt: present",
+   "#5 WITNESSED · evidence absent",
+   "#6 CONDITIONAL",
+   "#7 UNSORTED",
+   "line 12 MALFORMED (a bullet, not an item)",
+   "pointable: done 1 · not done 1 · can't tell 1 · malformed 1"
+  ],
+  "absent": [
+   "RESCOPE"
+  ]
+ },
+ {
+  "label": "malformed lines, each named",
+  "list": "02-malformed.md",
+  "exit": 1,
+  "expect": [
+   "#1 DONE",
+   "line 5 MALFORMED (a bullet",
+   "#2 MALFORMED (a bracket after the number",
+   "#3 MALFORMED (a leading space",
+   "line 8 MALFORMED (not an item",
+   "#4 MALFORMED (a tag that is not one of the five)",
+   "#5 MALFORMED (a POINTABLE with no check:",
+   "#1 MALFORMED (repeats item number 1)",
+   "#6 MALFORMED (no ' — ' after the tag)",
+   "malformed 8"
+  ]
+ },
+ {
+  "label": "a nested backtick in a command is malformed",
+  "list": "03-nested-backtick.md",
+  "exit": 1,
+  "expect": [
+   "#1 MALFORMED (a backtick inside the command",
+   "#2 DONE"
+  ]
+ },
+ {
+  "label": "a code span in a note is malformed",
+  "list": "04-note-span.md",
+  "exit": 1,
+  "expect": [
+   "#1 MALFORMED (a backtick inside the command",
+   "#2 DONE"
+  ]
+ },
+ {
+  "label": "before the work: the unmarked pass is caught",
+  "list": "05-before-work.md",
+  "exit": 1,
+  "before_work": true,
+  "expect": [
+   "#1 DONE · CATCH: passes before the work",
+   "#2 DONE · marked [before-work ok]",
+   "#3 NOT DONE",
+   "passes before the work 1"
+  ]
+ },
+ {
+  "label": "before the work: a marked pass is no catch",
+  "list": "06-before-work-ok.md",
+  "exit": 0,
+  "before_work": true,
+  "expect": [
+   "#1 DONE · marked [before-work ok]",
+   "passes before the work 0"
+  ],
+  "absent": [
+   "CATCH"
+  ]
+ },
+ {
+  "label": "without --before-work the same list names no catch",
+  "list": "05-before-work.md",
+  "exit": 1,
+  "expect": [
+   "#1 DONE"
+  ],
+  "absent": [
+   "CATCH"
+  ]
+ },
+ {
+  "label": "a command that cannot start is can't tell",
+  "list": "07-cannot-start.md",
+  "exit": 2,
+  "expect": [
+   "#1 CAN'T TELL (could not start (exit 127))",
+   "#2 CAN'T TELL (could not start (exit 126))"
+  ]
+ },
+ {
+  "label": "a command past its timeout is can't tell",
+  "list": "08-timeout.md",
+  "exit": 2,
+  "expect": [
+   "#1 CAN'T TELL (timed out after 1s; its process group ended)"
+  ]
+ },
+ {
+  "label": "no block: not a list, can't tell",
+  "list": "09-no-block.md",
+  "exit": 2,
+  "expect": [
+   "CAN'T TELL: not a list: no done-list block"
+  ]
+ },
+ {
+  "label": "two blocks: the twin, can't tell",
+  "list": "10-two-blocks.md",
+  "exit": 2,
+  "expect": [
+   "CAN'T TELL: not a list: 2 done-list blocks in one file (twin)"
+  ]
+ },
+ {
+  "label": "a block that does not close: can't tell",
+  "list": "11-unclosed.md",
+  "exit": 2,
+  "expect": [
+   "does not close"
+  ]
+ },
+ {
+  "label": "a block with no item: can't tell",
+  "list": "12-empty-block.md",
+  "exit": 2,
+  "expect": [
+   "holds no item"
+  ]
+ },
+ {
+  "label": "a relative root is read from the list's folder",
+  "list": "13-relative-root.md",
+  "exit": 0,
+  "expect": [
+   "#1 DONE"
+  ]
+ },
+ {
+  "label": "a cap above 3 is read as 3 and said",
+  "list": "14-cap-too-large.md",
+  "exit": 0,
+  "expect": [
+   "cap 9 read as 3",
+   "cap 3"
+  ]
+ },
+ {
+  "label": "a cap below 1 and a timeout not whole are malformed, each with its reason",
+  "list": "15-cap-zero.md",
+  "exit": 1,
+  "expect": [
+   "MALFORMED (cap is below 1)",
+   "MALFORMED (timeout is not a whole number"
+  ]
+ },
+ {
+  "label": "a timeout of 0 is below 1, and a cap that is not a number is not whole",
+  "list": "16-zero-timeout.md",
+  "exit": 1,
+  "expect": [
+   "MALFORMED (timeout is below 1 second)",
+   "MALFORMED (cap is not a whole number)"
+  ]
+ },
+ {
+  "label": "a check ended by a signal is NOT DONE, naming the signal",
+  "list": "17-signal.md",
+  "exit": 1,
+  "expect": [
+   "#1 NOT DONE (ended by signal 9)"
+  ]
+ }
+]

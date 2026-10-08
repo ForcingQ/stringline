@@ -6,3 +6,5 @@
 .frontier.json
 # Python's compiled cache; never part of the project
 __pycache__/
+# the done-list hook's counter and log, beside a list; local state, never part of the project
+.done-list/

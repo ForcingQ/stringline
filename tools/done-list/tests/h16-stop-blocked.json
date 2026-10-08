@@ -1,0 +1,6 @@
+{
+  "hook_event_name": "Stop",
+  "session_id": "fixture-session",
+  "stop_hook_active": false,
+  "last_assistant_message": "A gated act is next.\nSTOP: BLOCKED #3: the merge is the person's word."
+}

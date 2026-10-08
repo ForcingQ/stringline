@@ -1,0 +1,6 @@
+{
+  "hook_event_name": "Stop",
+  "session_id": "fixture-session",
+  "stop_hook_active": false,
+  "last_assistant_message": "The work up to the person's item is done.\n\n`STOP: YOURS #2`  "
+}

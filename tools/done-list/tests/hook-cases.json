@@ -1,0 +1,416 @@
+[
+ {
+  "label": "allow: STOP: YOURS #2",
+  "state": "yours",
+  "list": "open-items.md",
+  "inputs": [
+   "h01-stop-yours.json"
+  ],
+  "expect": [
+   "allow"
+  ],
+  "log_has": [
+   "declared",
+   "STOP: YOURS #2"
+  ],
+  "counter": 0
+ },
+ {
+  "label": "allow: the stop line with a trailing backtick",
+  "state": "backtick",
+  "list": "open-items.md",
+  "inputs": [
+   "h02-stop-backtick.json"
+  ],
+  "expect": [
+   "allow"
+  ],
+  "log_has": [
+   "declared"
+  ]
+ },
+ {
+  "label": "block: open items",
+  "state": "open",
+  "list": "open-items.md",
+  "inputs": [
+   "h03-open-items.json"
+  ],
+  "expect": [
+   "block"
+  ],
+  "reason_has": [
+   "#3 NOT DONE (exit 1)",
+   "continuation 1 of 3",
+   "STOP: YOURS #n",
+   "STOP: BLOCKED #n"
+  ],
+  "counter": 1,
+  "log_open": [
+   3
+  ]
+ },
+ {
+  "label": "cap: three blocks, then allow, then the counter starts again",
+  "state": "cap",
+  "list": "open-items.md",
+  "inputs": [
+   "h04-cap.json",
+   "h04-cap.json",
+   "h04-cap.json",
+   "h04-cap.json",
+   "h04-cap.json"
+  ],
+  "expect": [
+   "block",
+   "block",
+   "block",
+   "allow",
+   "block"
+  ],
+  "reason_has": [
+   [
+    "continuation 1 of 3"
+   ],
+   [
+    "continuation 2 of 3"
+   ],
+   [
+    "continuation 3 of 3",
+    "It is the last",
+    "NOT DONE"
+   ],
+   [],
+   [
+    "continuation 1 of 3"
+   ]
+  ],
+  "log_has": [
+   "cap 3 reached"
+  ],
+  "counter": 1
+ },
+ {
+  "label": "reset: a declared stop resets the counter",
+  "state": "reset",
+  "list": "open-items.md",
+  "inputs": [
+   "h03-open-items.json",
+   "h01-stop-yours.json"
+  ],
+  "expect": [
+   "block",
+   "allow"
+  ],
+  "counter": 0
+ },
+ {
+  "label": "transcript: no last_assistant_message, the last text after the last user event",
+  "state": "transcript",
+  "list": "open-items.md",
+  "inputs": [
+   "h05-transcript.json"
+  ],
+  "expect": [
+   "allow"
+  ],
+  "log_has": [
+   "(transcript)"
+  ]
+ },
+ {
+  "label": "stale stop: a turn with no text after an earlier stop line",
+  "state": "stale",
+  "list": "open-items.md",
+  "inputs": [
+   "h06-stale-stop.json"
+  ],
+  "expect": [
+   "block"
+  ],
+  "reason_has": [
+   "continuation 1 of 3"
+  ]
+ },
+ {
+  "label": "allow, logged: STOP: YOURS on a POINTABLE item",
+  "state": "on-pointable",
+  "list": "open-items.md",
+  "inputs": [
+   "h07-yours-on-pointable.json"
+  ],
+  "expect": [
+   "allow"
+  ],
+  "log_has": [
+   "tagged POINTABLE, not YOURS"
+  ]
+ },
+ {
+  "label": "allow, logged: STOP: YOURS on a number no item has",
+  "state": "missing",
+  "list": "open-items.md",
+  "inputs": [
+   "h08-yours-missing.json"
+  ],
+  "expect": [
+   "allow"
+  ],
+  "log_has": [
+   "no item #9"
+  ]
+ },
+ {
+  "label": "allow: a stop line followed by a closing fence",
+  "state": "fence",
+  "list": "open-items.md",
+  "inputs": [
+   "h09-stop-fence.json"
+  ],
+  "expect": [
+   "allow"
+  ],
+  "log_has": [
+   "declared"
+  ]
+ },
+ {
+  "label": "allow: STOP: BLOCKED with its reason",
+  "state": "blocked",
+  "list": "open-items.md",
+  "inputs": [
+   "h16-stop-blocked.json"
+  ],
+  "expect": [
+   "allow"
+  ],
+  "log_has": [
+   "STOP: BLOCKED #3"
+  ]
+ },
+ {
+  "label": "block: a bold stop line is not a stop line",
+  "state": "bold",
+  "list": "open-items.md",
+  "inputs": [
+   "h17-stop-bold.json"
+  ],
+  "expect": [
+   "block"
+  ]
+ },
+ {
+  "label": "block: a stop line that is not the last line",
+  "state": "not-last",
+  "list": "open-items.md",
+  "inputs": [
+   "h18-stop-not-last.json"
+  ],
+  "expect": [
+   "block"
+  ]
+ },
+ {
+  "label": "block: a malformed list, naming the line",
+  "state": "malformed",
+  "list": "02-malformed.md",
+  "inputs": [
+   "h10-malformed-hook.json"
+  ],
+  "expect": [
+   "block"
+  ],
+  "reason_has": [
+   "line 5 MALFORMED (a bullet",
+   "#1 MALFORMED (repeats item number 1)"
+  ],
+  "log_has": [
+   "also open: line 5"
+  ]
+ },
+ {
+  "label": "block: a file that opens but is not a list, naming why",
+  "state": "not-a-list",
+  "list": "09-no-block.md",
+  "inputs": [
+   "h12-not-a-list.json"
+  ],
+  "expect": [
+   "block"
+  ],
+  "reason_has": [
+   "not a list: no done-list block"
+  ]
+ },
+ {
+  "label": "allow: every check passes",
+  "state": "all-done",
+  "list": "all-done.md",
+  "inputs": [
+   "h19-all-done.json"
+  ],
+  "expect": [
+   "allow"
+  ],
+  "log_has": [
+   "every POINTABLE exits 0"
+  ],
+  "counter": 0
+ },
+ {
+  "label": "allow: an unwritable state folder, the error on standard error",
+  "state": "unwritable",
+  "state_is_file": true,
+  "list": "open-items.md",
+  "inputs": [
+   "h11-unwritable-state.json"
+  ],
+  "expect": [
+   "allow"
+  ],
+  "stderr_has": "could not be written"
+ },
+ {
+  "label": "allow, logged: a SubagentStop is not acted on",
+  "state": "subagent",
+  "list": "open-items.md",
+  "inputs": [
+   "h13-subagent.json"
+  ],
+  "expect": [
+   "allow"
+  ],
+  "log_has": [
+   "not a Stop event: SubagentStop"
+  ],
+  "counter": null
+ },
+ {
+  "label": "allow, logged: stdin that is not JSON",
+  "state": "not-json",
+  "list": "open-items.md",
+  "inputs": [
+   "h14-not-json.json"
+  ],
+  "expect": [
+   "allow"
+  ],
+  "log_has": [
+   "input is not JSON"
+  ]
+ },
+ {
+  "label": "allow, logged: a list the hook cannot read",
+  "state": "unreadable",
+  "list": "no-such-list.md",
+  "inputs": [
+   "h15-unreadable-list.json"
+  ],
+  "expect": [
+   "allow"
+  ],
+  "log_has": [
+   "the list could not be opened"
+  ]
+ },
+ {
+  "label": "own error: the allow resets the counter, so the next block is 1 of 3",
+  "state": "own-error",
+  "list": "open-items.md",
+  "inputs": [
+   "h03-open-items.json",
+   "h20-own-error.json",
+   "h03-open-items.json"
+  ],
+  "expect": [
+   "block",
+   "allow",
+   "block"
+  ],
+  "reason_has": [
+   [
+    "continuation 1 of 3"
+   ],
+   [],
+   [
+    "continuation 1 of 3"
+   ]
+  ],
+  "log_has": [
+   "the hook erred"
+  ],
+  "counter": 1
+ },
+ {
+  "label": "an empty last_assistant_message falls back to the transcript",
+  "state": "empty-message",
+  "list": "open-items.md",
+  "inputs": [
+   "h21-empty-message.json"
+  ],
+  "expect": [
+   "allow"
+  ],
+  "log_has": [
+   "(transcript)"
+  ]
+ },
+ {
+  "label": "allow, logged: arguments the hook cannot read",
+  "state": "bad-args",
+  "list": "open-items.md",
+  "argv_extra": [
+   "--no-such-flag"
+  ],
+  "inputs": [
+   "h22-bad-args.json"
+  ],
+  "expect": [
+   "allow"
+  ],
+  "log_has": [
+   "arguments could not be read"
+  ]
+ },
+ {
+  "label": "unreadable arguments: the allow resets the counter, so the next block is 1 of 3",
+  "state": "bad-args-reset",
+  "list": "open-items.md",
+  "inputs": [
+   "h03-open-items.json",
+   "h03-open-items.json",
+   "h22-bad-args.json",
+   "h03-open-items.json"
+  ],
+  "argv_extra_per": [
+   [],
+   [],
+   [
+    "--no-such-flag"
+   ],
+   []
+  ],
+  "expect": [
+   "block",
+   "block",
+   "allow",
+   "block"
+  ],
+  "reason_has": [
+   [
+    "continuation 1 of 3"
+   ],
+   [
+    "continuation 2 of 3"
+   ],
+   [],
+   [
+    "continuation 1 of 3"
+   ]
+  ],
+  "log_has": [
+   "arguments could not be read"
+  ],
+  "counter": 1
+ }
+]
