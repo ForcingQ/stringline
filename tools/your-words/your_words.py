@@ -410,7 +410,57 @@ def context(text, start, end):
     return (" ".join(before) or "[start]"), (" ".join(after) or "[end]")
 
 
-def diagnose(messages, parts):
+def _splice_reason(text, parts, lead, trail):
+    """When every part of a quote is found in one message, say which of two
+    things kept it from reading corrected: the parts stand in another order, or
+    an … covers a negation (and where, as a count of typed words, never a word).
+    None when a part is not found, or when neither is the reason."""
+    mt = tokens(text)
+    qts = [tokens(p) for p in parts]
+    if not mt or any(not q for q in qts):
+        return None
+    budget = math.ceil(sum(len(q) for q in qts) / 8)
+    cands = [sorted({(c[0], c[1]) for c in part_spans(q, mt) if c[2] <= budget})
+             for q in qts]
+    if any(not c for c in cands):
+        return None
+    chains, steps = [], [0]
+
+    def go(idx, pos, chosen):
+        steps[0] += 1
+        if steps[0] > 5000 or len(chains) >= 200:
+            return
+        if idx == len(cands):
+            chains.append(chosen)
+            return
+        for s, e in cands[idx]:
+            if s >= pos:
+                go(idx + 1, e, chosen + [(s, e)])
+
+    go(0, 0, [])
+    if not chains:
+        return "the parts are out of order" if len(parts) > 1 else None
+
+    def first_neg(a, b):
+        return next((k - a + 1 for k in range(a, b) if is_negation(mt[k].raw)), None)
+
+    for chosen in chains:
+        for i in range(len(chosen) - 1):
+            if first_neg(chosen[i][1], chosen[i + 1][0]):
+                return f"an … skips a negation, between parts {i + 1} and {i + 2}"
+        if trail:
+            k = first_neg(chosen[-1][1], len(mt))
+            if k:
+                return f"an … skips a negation, {k} typed words past the quote's end"
+        if lead:
+            a = chosen[0][0]
+            back = next((a - k for k in range(a - 1, -1, -1) if is_negation(mt[k].raw)), None)
+            if back:
+                return f"an … skips a negation, {back} typed words before the quote's start"
+    return None
+
+
+def diagnose(messages, parts, lead=False, trail=False):
     """Why a quote is absent: the nearest message and the first rule it breaks."""
     qt = [t for p in parts for t in tokens(p)]
     best = None
@@ -453,6 +503,10 @@ def diagnose(messages, parts):
     same = sum(1 for o, i, j in ops if o == "sub" and qt[i].f == mt[j].f)
     if same == 0:
         return None, "no message holds its words"
+    for k, text in enumerate(messages, 1):  # the parts' own places outrank the loose alignment
+        why = _splice_reason(text, parts, lead, trail)
+        if why:
+            return k, why
     for o, i, j in ops:
         if o == "sub" and qt[i].f != mt[j].f and (is_negation(qt[i].raw) or
                                                   is_negation(mt[j].raw)):
@@ -475,7 +529,7 @@ def diagnose(messages, parts):
     allowed = math.ceil(len(qt) / 8)
     if differ > allowed:
         return n, f"{differ} of {len(qt)} words differ; at most {allowed}"
-    return n, "an … skips a negation, or the parts are out of order"
+    return n, "an … skips a negation, or the parts are out of order (which, it cannot tell)"
 
 
 # ---------------------------------------------------------------- the run
@@ -571,7 +625,7 @@ def check(sources, words):
                                  f" · {detail} · before: {before} · after: {after}")
                 continue
             counts["absent"] += 1
-            near, why = diagnose(messages, parts)
+            near, why = diagnose(messages, parts, lead, trail)
             nearest = f" · nearest: message {near}" if near else ""
             if private:
                 why = why.split(":")[0]
