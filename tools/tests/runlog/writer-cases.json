@@ -1,5 +1,5 @@
 {
-  "about": "Planted faults for the run-log writer. Each case changes the base row and names what the writer must do: written, or the error class it must raise. The base row goes to a scratch folder named rows in no repository. temp_repo: the tool's files sit in a fresh repository and no folder is given, so the default log folder is that repository's runs/. files_plain: the tool's files sit in no repository. files_string: files given as one string. folder_in_tmp and folder_in_repo: the folder named, under the scratch folder or inside the fresh repository. A label starting control: is a near miss that must be written.",
+  "about": "Planted faults for the run-log writer. Each case changes the base row and names what the writer must do: written, or the error class it must raise. The base row goes to a scratch folder named rows in no repository. temp_repo: the tool's files sit in a fresh repository and no folder is given, so the default log folder is that repository's runs/. files_plain: the tool's files sit in no repository. files_string: files given as one string. files_path_object: files given as one path object. folder_in_tmp and folder_in_repo: the folder named, under the scratch folder or inside the fresh repository. A label starting control: is a near miss that must be written.",
   "base": {"tool": "fixture-tool", "kind": "real", "planted_by": "", "invoked_by": "person", "read": ["a.md"], "compared_against": ["b.txt"], "outcomes": {"exact": 1}, "caught": [], "could_not": []},
   "cases": [
     {"label": "a real row from a person", "set": {}, "expect": "written"},
@@ -15,6 +15,9 @@
     {"label": "a tool id ending in a line break", "set": {"tool": "fixture-tool\n"}, "expect": "BadToolId"},
     {"label": "a tool id ending in a space", "set": {"tool": "your-words "}, "expect": "BadToolId"},
     {"label": "files as one string", "set": {"files_string": "tools/runlog.py"}, "expect": "NotAList"},
+    {"label": "files as a path object", "set": {"files_path_object": true}, "expect": "NotAList"},
+    {"label": "caught as a number", "set": {"caught": 5}, "expect": "NotAList"},
+    {"label": "could_not as a map", "set": {"could_not": {"a": 1}}, "expect": "NotAList"},
     {"label": "a plant with no note", "set": {"kind": "planted", "planted_by": ""}, "expect": "UnnamedPlant"},
     {"label": "a plant with a blank note", "set": {"kind": "planted", "planted_by": "   "}, "expect": "UnnamedPlant"},
     {"label": "a real row from a self-test", "set": {"invoked_by": "selftest"}, "expect": "SelftestWroteReal"},

@@ -27,7 +27,11 @@ absolute paths.
 the phrase "outside the repository" as the whole entry. Refused: an absolute,
 home, drive-letter, `$VARIABLE` or `scheme://` path, one climbing out of the
 repository, and the phrase followed by anything (the folder is public; a path
-into a machine is not).
+into a machine is not). Limit: the spec defines no form for "a path into a
+machine", so this list of spellings can miss one. Known to pass, and so left
+to the caller and the private-word scan: `file:` with a single slash, a
+`%VARIABLE%` path, a path in the middle of an entry, a zero-width space before
+a path, and the phrase followed by a no-break space and a path.
 
 Refusals, each its own class (all are RunLogError): BadKind · BadInvoker ·
 BadToolId (not lower-case letters, digits, hyphens) · UnnamedPlant ·
@@ -35,11 +39,15 @@ SelftestWroteReal · RealReadFixture (`fixture`, or a path component `tests` in
 any letter case) · ReservedTool (a real row under `fixture-tool` written to a
 folder named `runs` in any letter case, to any folder inside a git repository, or to the
 default log folder; only a scratch folder outside every repository, as a
-self-test's, may hold one, as SPEC-run-log's done-when asks) · MachinePath ·
+self-test's, may hold one, as SPEC-run-log's done-when asks; limit: a folder
+inside a repository's .git folder is not seen as inside it) · MachinePath ·
 RealCarriesPlant (a real row with planted_by) · NotOneLine (an entry of read,
 compared_against, caught or could_not that is not a string, is blank, or holds
 any character str.splitlines() breaks on) · BadOutcomes (not a non-empty map of
-name to whole number) · NotAList (`files` or `catching` given as a string).
+name to whole number) · NotAList (`files`, `catching`, `read`,
+`compared_against`, `caught` or `could_not` given as anything but a list,
+tuple or set; a string is accepted for the four row fields as one entry, and
+never for `files` or `catching`, which would be read letter by letter).
 
 Limit, said plainly: the module never reads the corpus, so it does not know a
 tool's own outcome names. caught_line(tool, catching): a real row carrying a
@@ -118,7 +126,8 @@ class BadOutcomes(RunLogError):
 
 
 class NotAList(RunLogError):
-    """files or catching given as a string, which would be read letter by letter."""
+    """An argument that must be a list given as something else (a string, a
+    number, a path object), which would be read letter by letter or crash."""
 
 
 # ---------------------------------------------------------------- locations
@@ -166,9 +175,14 @@ def _resolve(entry):
     return entry if os.path.isabs(entry) else os.path.join(module_root(), entry)
 
 
+SEQUENCES = (list, tuple, set, frozenset)
+
+
 def _paths(files):
-    if isinstance(files, (str, bytes)):
-        raise NotAList("files is a list of paths, not one string")
+    if files is not None and not isinstance(files, SEQUENCES):
+        raise NotAList(f"files is a list of paths, not a {type(files).__name__}")
+    if files and not all(isinstance(f, str) for f in files):
+        raise NotAList("files is a list of path strings")
     return [_resolve(f) for f in files] if files else [os.path.abspath(__file__)]
 
 
@@ -206,6 +220,8 @@ def _as_list(value):
         return []
     if isinstance(value, str):
         return [value] if value else []
+    if not isinstance(value, SEQUENCES):
+        raise NotAList(f"a row field is a list, not a {type(value).__name__}")
     return list(value)  # entries are checked, never turned into text
 
 
@@ -415,8 +431,8 @@ def _plural(n, one, many):
 def caught_line(tool, catching=None, folder=None):
     """The card's "what it has caught" sentence, from the tool's real rows only.
     An empty or absent `catching` means every real run is a checking run."""
-    if isinstance(catching, (str, bytes)):
-        raise NotAList("catching is a list of outcome names, not one string")
+    if catching is not None and not isinstance(catching, SEQUENCES):
+        raise NotAList(f"catching is a list of outcome names, not a {type(catching).__name__}")
     found = rows(tool, folder)
     unreadable = len(found.cant_tell)
     checking, other = [], []
@@ -487,6 +503,9 @@ def _selftest():
                 args["files"] = [os.path.join(plain, "tool.py")]
             if "files_string" in args:  # files as one string, not a list
                 args["files"] = args.pop("files_string")
+            if args.pop("files_path_object", False):  # files as one path object
+                import pathlib
+                args["files"] = pathlib.Path(__file__)
             if "folder_in_tmp" in args:
                 args["folder"] = os.path.join(tmp, args.pop("folder_in_tmp"))
             if "folder_in_repo" in args:

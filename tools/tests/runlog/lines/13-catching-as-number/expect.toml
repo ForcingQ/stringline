@@ -1,0 +1,3 @@
+# a number where a list belongs is refused with a named error, never a bare crash
+catching = 5
+line = "NotAList"
