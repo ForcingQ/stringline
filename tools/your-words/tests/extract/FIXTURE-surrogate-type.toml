@@ -1,0 +1,7 @@
+# synthetic session record, written for this fixture; no real record is read
+# a lone surrogate in an event's type: that line is can't read; the rest and a row are
+# written (to a scratch log folder), the row counting cant_read 1; exit 2
+mode = "planted-run"
+exit = 2
+row = { messages = 1, cant_read = 1 }
+contains = ["FIXTURE-surrogate-type.jsonl:1 · an event type that is not valid Unicode"]

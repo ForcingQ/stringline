@@ -20,6 +20,7 @@
     {"label": "could_not as a map", "set": {"could_not": {"a": 1}}, "expect": "NotAList"},
     {"label": "a plant with no note", "set": {"kind": "planted", "planted_by": ""}, "expect": "UnnamedPlant"},
     {"label": "a plant with a blank note", "set": {"kind": "planted", "planted_by": "   "}, "expect": "UnnamedPlant"},
+    {"label": "a plant whose note holds a byte that is not UTF-8", "set": {"kind": "planted", "planted_by": "a note \udcff", "invoked_by": "person"}, "expect": "NotUnicode"},
     {"label": "a real row from a self-test", "set": {"invoked_by": "selftest"}, "expect": "SelftestWroteReal"},
     {"label": "a real row from a self-test, planted_by set", "set": {"invoked_by": "selftest", "planted_by": "selftest"}, "expect": "SelftestWroteReal"},
     {"label": "a real row from a person, planted_by set", "set": {"planted_by": "selftest"}, "expect": "RealCarriesPlant"},

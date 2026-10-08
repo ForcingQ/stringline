@@ -70,7 +70,8 @@ dropping one reads corrected. A negation typed without its apostrophe and
 quoted with it (dont to don't) reads corrected: the same word, typed two ways.
 
 Exit: 0 nothing absent or unchecked · 1 a quote is absent · 2 none absent,
-some could not be checked. The exit is a report; nothing stops on it."""
+some could not be checked. The exit is a report; nothing stops on it. Anything
+unhandled is one line under could not see, exit 2, never a traceback."""
 
 
 # ---------------------------------------------------------------- words
@@ -624,7 +625,7 @@ def selftest(no_log):
             want = tomllib.load(fh)
         pages = sorted(os.path.join(folder, f) for f in os.listdir(folder) if f.endswith(".md"))
         words = os.path.join(folder, want.get("words", "words.txt"))
-        if want.get("mode") in ("real-run", "unwritable-log"):
+        if want.get("mode") in ("real-run", "unwritable-log", "bad-note"):
             # a person's run, logging on, over fixture pages. real-run: the run log
             # refuses a real row that read fixtures. unwritable-log: the log folder
             # (a scratch folder, never runs/) cannot be written. Either reads can't
@@ -637,15 +638,17 @@ def selftest(no_log):
                 locked = os.path.join(tmp, "runs")
                 os.makedirs(locked)
                 saved = runlog.default_folder
+                if want["mode"] in ("unwritable-log", "bad-note"):
+                    runlog.default_folder = lambda files=None: locked
                 if want["mode"] == "unwritable-log":
                     os.chmod(locked, 0o555)
-                    runlog.default_folder = lambda files=None: locked
                 try:
                     if want["mode"] == "unwritable-log" and os.access(locked, os.W_OK):
                         print(f"skip {case}: a locked folder is writable here")
                         os.chmod(locked, 0o755)
                         continue
-                    extra = ["--planted", "selftest"] if want["mode"] == "unwritable-log" else []
+                    extra = {"unwritable-log": ["--planted", "selftest"],
+                             "bad-note": ["--planted", "a note \udcff"]}.get(want["mode"], [])
                     with contextlib.redirect_stdout(buf):
                         code = main(pages + ["--words", words] + extra)
                     rows = os.listdir(locked)
@@ -686,6 +689,18 @@ def selftest(no_log):
 
 
 def main(argv):
+    try:
+        sys.stdout.reconfigure(errors="backslashreplace")
+    except (AttributeError, ValueError):
+        pass  # a replaced stdout (the self-test's) keeps its own rule
+    try:
+        return _main(argv)
+    except Exception as exc:  # the net: never a traceback, never 1, no row
+        print(f"could not see: {type(exc).__name__}")
+        return 2
+
+
+def _main(argv):
     ap = argparse.ArgumentParser(prog="your_words.py", description=HELP,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("sources", nargs="*", help="markdown files (default: every top-level .md)")

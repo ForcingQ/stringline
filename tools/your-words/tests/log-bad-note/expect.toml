@@ -1,0 +1,4 @@
+# the writer refuses the note with a named error: one line, can't check, exit 2, no row
+mode = "bad-note"
+exit = 2
+contains = ["CAN'T CHECK · the run log refused this run's row (NotUnicode"]

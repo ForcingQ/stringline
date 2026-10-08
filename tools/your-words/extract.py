@@ -26,7 +26,13 @@ separate clone of the repository is another repository, and is not refused.
 Named limits. The table of harness tags below is hand-kept: a tag or marker
 outside it, a short paste the harness did not tag, a prompt an agent wrote
 into a seat's own record, and a summary the harness wrote after compaction
-each pass as typed. Words a person types as a slash command or its arguments
+each pass as typed. A git that exits 0 listing no worktree is trusted. A copy
+of the tool outside any repository refuses every --out (the worktree check
+cannot be made). A refusal line names the repository's own folder on the
+person's own screen, never in a file. A lone surrogate anywhere in a typed
+event, even inside a paste that would be removed, makes the whole event can't
+read. Anything unhandled is caught at the entry point: one line under could
+not see, exit 2, no row, no output left. Words a person types as a slash command or its arguments
 go with the command. A block typed at a line's start with its closing tag is
 removed, as the harness's would be; a tag typed mid-line with no attribute, or
 with no closing tag, is kept. Removal runs to the first closing tag (a block
@@ -150,6 +156,15 @@ def trim_blank_edges(text):
     return "\n".join(lines), dropped, inner
 
 
+def writable(text):
+    """Text that can be written as UTF-8 (no lone surrogate)."""
+    try:
+        text.encode("utf-8")
+        return True
+    except UnicodeEncodeError:
+        return False
+
+
 def user_text(event):
     """(raw typed text, [skipped part types]) or CantRead."""
     message = event.get("message")
@@ -166,6 +181,8 @@ def user_text(event):
     for part in content:
         if not isinstance(part, dict) or not isinstance(part.get("type"), str):
             raise CantRead("a part without a type")
+        if not writable(part["type"]):
+            raise CantRead("a part type that is not valid Unicode")
         if part["type"] == "text" and isinstance(part.get("text"), str):
             texts.append(part["text"])
         else:
@@ -213,14 +230,17 @@ def working_trees(root):
     a check that cannot be made never falls back to writing."""
     try:
         out = subprocess.run(["git", "worktree", "list", "--porcelain"], cwd=root,
-                             capture_output=True, text=True, timeout=30)
-    except (OSError, subprocess.SubprocessError):
+                             capture_output=True, timeout=30)
+    except (OSError, subprocess.SubprocessError, ValueError):
         return None, "git cannot be run here"
     if out.returncode != 0:
-        said = (out.stderr.strip().splitlines() or ["no reason given"])[0]
+        # git's reason, read as bytes: what is not UTF-8 is shown with replacement
+        said = (out.stderr.decode("utf-8", "replace").strip().splitlines()
+                or ["no reason given"])[0]
         return None, f"git refused to list the worktrees (exit {out.returncode}: {said})"
+    listing = os.fsdecode(out.stdout)  # folder names, decoded as the file system's
     tops = [root] + [os.path.realpath(line[len("worktree "):])
-                     for line in out.stdout.splitlines() if line.startswith("worktree ")]
+                     for line in listing.splitlines() if line.startswith("worktree ")]
     return tops, None
 
 
@@ -332,6 +352,8 @@ def extract(records):
                 if not isinstance(event, dict) or not isinstance(event.get("type"), str):
                     raise CantRead("no type")
                 kind = event["type"]
+                if not writable(kind):
+                    raise CantRead("an event type that is not valid Unicode")
                 if kind not in ("user", "assistant"):
                     events_skipped[kind] = events_skipped.get(kind, 0) + 1
                     continue
@@ -349,11 +371,9 @@ def extract(records):
                     counts["harness_skipped"] += 1
                     continue
                 raw, skipped = user_text(event)
-                try:
-                    raw.encode("utf-8")
-                except UnicodeEncodeError:
+                if not writable(raw):
                     raise CantRead("text that is not valid Unicode (a lone surrogate)"
-                                   " and cannot be written as UTF-8") from None
+                                   " and cannot be written as UTF-8")
                 for t in skipped:
                     parts_skipped[t] = parts_skipped.get(t, 0) + 1
                 material.append((when, rno, lno, "user", raw, stamp))
@@ -473,13 +493,14 @@ def exit_code(result):
 
 
 def run(records, out, times, planted, no_log, quiet=False):
+    """Compute, print the report, write the outputs, then the row. Anything that
+    goes wrong is one line under could not see, exit 2, nothing left written."""
     root = runlog.module_root()
     why = refuse_targets(out, times, root)
     if why:
         print(f"refused · {why}")
         return 2
-    result = extract(records)
-    path, kind, made = None, "planted" if planted else "real", []
+    made = []
 
     def give_up(why):
         """One line under could not see, exit 2, nothing left written, no row."""
@@ -488,43 +509,43 @@ def run(records, out, times, planted, no_log, quiet=False):
                 os.remove(p)
             except OSError:
                 pass
-        result["could_not"].append(why)
-        result["counts"]["cant_read"] += 1
-        if not quiet:
-            print(f"can't read · {why}")
-            for line in report(result):
-                print(line)
+        print(f"can't read · {why}")
+        print(f"could not see: {why}")
         return 2  # never a crash, never 1
 
-    # the outputs first, written and closed; the row only after them
     try:
-        for target, body in ((out, words_file), (times, times_file)):
-            if target:
-                with open(target, "x", encoding="utf-8") as fh:
-                    made.append(target)
-                    fh.write(body(result))
-    except (OSError, UnicodeError) as exc:
-        detail = exc.strerror if isinstance(exc, OSError) and exc.strerror else exc
-        return give_up(f"the output could not be written ({type(exc).__name__}:"
-                       f" {detail}); nothing was logged and nothing written")
-    if not no_log:
+        result = extract(records)
+        path, kind = None, "planted" if planted else "real"
+        if not quiet:
+            for line in report(result):
+                print(line)
         try:
-            path = runlog.write(TOOL, OWN_FILES, kind, planted or "", "person",
-                                result["read"], [], dict(result["counts"]), [],
-                                result["could_not"])
-        except (runlog.RunLogError, OSError) as exc:
+            for target, body in ((out, words_file), (times, times_file)):
+                if target:
+                    with open(target, "x", encoding="utf-8") as fh:
+                        made.append(target)
+                        fh.write(body(result))
+        except (OSError, UnicodeError) as exc:
             detail = exc.strerror if isinstance(exc, OSError) and exc.strerror else exc
-            return give_up(f"the run log refused this run's row ({type(exc).__name__}:"
-                           f" {detail}); nothing was logged and nothing written" +
-                           ("; a run on fixtures is a plant: give --planted"
-                            if kind == "real" and isinstance(exc, runlog.RunLogError)
-                            else ""))
-    if not quiet:
-        for line in report(result):
-            print(line)
-    if path:
-        print(f"logged: {os.path.relpath(path, root)} ({kind})")
-    return exit_code(result)
+            return give_up(f"the output could not be written ({type(exc).__name__}:"
+                           f" {detail}); nothing was logged and nothing written")
+        if not no_log:
+            try:
+                path = runlog.write(TOOL, OWN_FILES, kind, planted or "", "person",
+                                    result["read"], [], dict(result["counts"]), [],
+                                    result["could_not"])
+            except (runlog.RunLogError, OSError) as exc:
+                detail = exc.strerror if isinstance(exc, OSError) and exc.strerror else exc
+                return give_up(f"the run log refused this run's row ({type(exc).__name__}:"
+                               f" {detail}); nothing was logged and nothing written" +
+                               ("; a run on fixtures is a plant: give --planted"
+                                if kind == "real" and isinstance(exc, runlog.RunLogError)
+                                else ""))
+        if path:
+            print(f"logged: {os.path.relpath(path, root)} ({kind})")
+        return exit_code(result)
+    except Exception as exc:  # the net: any case not handled above
+        return give_up(f"{type(exc).__name__}; nothing was logged and nothing written")
 
 
 # ---------------------------------------------------------------- self-test
@@ -575,12 +596,12 @@ def selftest(no_log):
                         continue
                     before = [p and os.path.exists(p) and open(p, "rb").read()
                               for p in (out, times)]
-                    if scratch_root in ("no-git", "git-refuses"):
+                    if scratch_root in ("no-git", "git-refuses", "git-refuses-bytes"):
                         # git off the PATH, or a git that runs and refuses: cannot
                         # tell, refuse, never fall back to writing
                         saved_path = os.environ.get("PATH", "")
                         os.environ["PATH"] = "" if scratch_root == "no-git" else \
-                            os.path.join(tmp, "refusing-git") + os.pathsep + saved_path
+                            os.path.join(tmp, scratch_root) + os.pathsep + saved_path
                         try:
                             why = refuse_targets(out, times, root)
                         finally:
@@ -628,6 +649,28 @@ def selftest(no_log):
                     finally:
                         os.chmod(runs, 0o755)
                         os.chmod(locked, 0o755)
+                continue
+            if mode in ("planted-run", "bad-note"):
+                # planted-run: outputs and a row (in a scratch log folder) are written
+                # bad-note: the writer refuses the note; one line, exit 2, nothing left
+                runs = os.path.join(tmp, f"runs-{label}")
+                os.makedirs(runs)
+                out = os.path.join(tmp, f"{label}-typed.txt")
+                note = "selftest" if mode == "planted-run" else "a note \udcff"
+                buf = io.StringIO()
+                with contextlib.redirect_stdout(buf), log_folder(runs):
+                    code = run(records, out, None, note, False)
+                printed = buf.getvalue()
+                rows = [json.load(open(os.path.join(runs, f), encoding="utf-8"))
+                        for f in os.listdir(runs)]
+                if mode == "planted-run":
+                    ok = (code == want["exit"] and os.path.exists(out) and len(rows) == 1 and
+                          all(rows[0]["outcomes"].get(k) == v
+                              for k, v in want.get("row", {}).items()))
+                else:
+                    ok = code == 2 and not rows and not os.path.exists(out)
+                ok = ok and all(n in printed for n in want.get("contains", []))
+                expect(f"{label}: {mode}", ok, f"exit {code} · {len(rows)} row(s)")
                 continue
             if mode == "real-run":
                 # a person's real run, logging on, over fixtures: the run log refuses
@@ -715,15 +758,18 @@ def refusal_targets(targets, tmp, root):
             decomposed = unicodedata.normalize("NFD", "FIXTURE-caf\u00e9.txt")
             out.append((name, os.path.join(tmp, composed), os.path.join(tmp, decomposed),
                         "name the same file", None))
-        elif name == "git-refuses":
-            fake = os.path.join(tmp, "refusing-git")
+        elif name in ("git-refuses", "git-refuses-bytes"):
+            fake = os.path.join(tmp, name)
             os.makedirs(fake, exist_ok=True)
+            said = ("fatal: a fixture git that always refuses" if name == "git-refuses"
+                    else "fatal: \\377\\376 not text")  # bytes that are not UTF-8
             with open(os.path.join(fake, "git"), "w", encoding="utf-8") as fh:
-                fh.write("#!/bin/sh\necho 'fatal: a fixture git that always refuses' >&2\n"
-                         "exit 128\n")
+                fh.write(f"#!/bin/sh\nprintf '{said}\\n' >&2\nexit 128\n")
             os.chmod(os.path.join(fake, "git"), 0o755)
-            out.append((name, os.path.join(tmp, "git-refuses-typed.txt"), None,
-                        "git refused to list the worktrees (exit 128", "git-refuses"))
+            out.append((name, os.path.join(tmp, f"{name}-typed.txt"), None,
+                        "git refused to list the worktrees (exit 128: fatal: " +
+                        ("a fixture" if name == "git-refuses" else "\ufffd\ufffd not text"),
+                        name))
         elif name == "no-git":
             out.append((name, os.path.join(tmp, "no-git-typed.txt"), None,
                         "git cannot be run here", "no-git"))
@@ -766,6 +812,18 @@ def refusal_targets(targets, tmp, root):
 
 
 def main(argv):
+    try:
+        sys.stdout.reconfigure(errors="backslashreplace")
+    except (AttributeError, ValueError):
+        pass  # a replaced stdout (the self-test's) keeps its own rule
+    try:
+        return _main(argv)
+    except Exception as exc:  # the net: never a traceback, never 1
+        print(f"could not see: {type(exc).__name__}")
+        return 2
+
+
+def _main(argv):
     ap = argparse.ArgumentParser(prog="extract.py", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter,
                                  epilog="It cannot see what a person typed outside the"

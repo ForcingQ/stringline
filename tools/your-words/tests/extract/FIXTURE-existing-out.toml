@@ -1,4 +1,4 @@
 # refusals: the string fixture extracted to a place it must refuse, each for its printed reason
 mode = "refuse"
 records = ["FIXTURE-string.jsonl"]
-targets = ["existing", "no-folder", "same-path", "same-path-other-case", "same-path-composed-decomposed", "no-git", "git-refuses"]
+targets = ["existing", "no-folder", "same-path", "same-path-other-case", "same-path-composed-decomposed", "no-git", "git-refuses", "git-refuses-bytes"]

@@ -47,7 +47,9 @@ any character str.splitlines() breaks on) · BadOutcomes (not a non-empty map of
 name to whole number) · NotAList (`files`, `catching`, `read`,
 `compared_against`, `caught` or `could_not` given as anything but a list,
 tuple or set; a string is accepted for the four row fields as one entry, and
-never for `files` or `catching`, which would be read letter by letter).
+never for `files` or `catching`, which would be read letter by letter) ·
+NotUnicode (a field that cannot be written as UTF-8; refused before any file
+is opened, so no empty row is ever left).
 
 Limit, said plainly: the module never reads the corpus, so it does not know a
 tool's own outcome names. caught_line(tool, catching): a real row carrying a
@@ -125,6 +127,11 @@ class BadOutcomes(RunLogError):
     """outcomes is not a non-empty map of outcome name to whole number."""
 
 
+class NotUnicode(RunLogError):
+    """A field holding text that cannot be written as UTF-8 (a lone surrogate,
+    such as a byte that is not UTF-8 in a note given on the command line)."""
+
+
 class NotAList(RunLogError):
     """An argument that must be a list given as something else (a string, a
     number, a path object), which would be read letter by letter or crash."""
@@ -136,15 +143,16 @@ _GIT_MISSING = object()
 
 
 def _git(args, cwd):
-    """git's standard output, None when git refused, _GIT_MISSING when absent."""
+    """git's standard output, None when git refused, _GIT_MISSING when absent.
+    Read as bytes and decoded as the file system's names are, so output that is
+    not UTF-8 is never a crash."""
     try:
-        out = subprocess.run(["git", *args], cwd=cwd, capture_output=True,
-                             text=True, timeout=30)
+        out = subprocess.run(["git", *args], cwd=cwd, capture_output=True, timeout=30)
     except FileNotFoundError:
         return _GIT_MISSING
-    except (OSError, subprocess.SubprocessError):
+    except (OSError, subprocess.SubprocessError, ValueError):
         return None
-    return out.stdout.strip() if out.returncode == 0 else None
+    return os.fsdecode(out.stdout).strip() if out.returncode == 0 else None
 
 
 def repo_root(path):
@@ -312,21 +320,26 @@ def write(tool, files, kind, planted_by, invoked_by, read, compared_against,
             for v in outcomes.values())):
         raise BadOutcomes("outcomes is a non-empty map of outcome name to count")
     folder = folder or default_folder(files)
-    os.makedirs(folder, exist_ok=True)
     row = {
         "tool": tool, "started": None, "kind": kind, "planted_by": planted_by,
         "invoked_by": invoked_by, "read": read, "compared_against": compared_against,
         "outcomes": {str(k): v for k, v in outcomes.items()},
         "caught": caught, "could_not": could_not, "tool_version": tool_version(files),
     }
+    try:
+        json.dumps(row, ensure_ascii=False).encode("utf-8")
+    except UnicodeEncodeError:
+        raise NotUnicode("a field holds text that cannot be written as UTF-8") from None
+    os.makedirs(folder, exist_ok=True)
     now = _clock()
     while True:  # two runs in one microsecond still leave two files
         stamp = now.strftime("%Y%m%dT%H%M%S.%fZ")
         row["started"] = now.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
         path = os.path.join(folder, f"{stamp}_{tool}_{kind}.json")
         try:
-            with open(path, "x", encoding="utf-8") as fh:
-                fh.write(json.dumps(row, indent=2, ensure_ascii=False) + "\n")
+            data = (json.dumps(row, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
+            with open(path, "xb") as fh:
+                fh.write(data)
             return path
         except FileExistsError:
             now += datetime.timedelta(microseconds=1)
@@ -558,6 +571,26 @@ def _selftest():
         open(os.path.join(empty, "tool.py"), "w").close()
         got = tool_version([os.path.join(empty, "tool.py")])
         expect("a repository with no commit reads uncommitted", got == "uncommitted", got)
+        # git's output that is not UTF-8 is read, never a crash
+        fake = os.path.join(tmp, "bytes-git")
+        os.makedirs(fake)
+        with open(os.path.join(fake, "git"), "w", encoding="utf-8") as fh:
+            fh.write("#!/bin/sh\nprintf '/a/folder/\\377\\376\\n'\n"
+                     "printf 'fatal: \\377\\376\\n' >&2\nexit ${FIXTURE_GIT_EXIT:-0}\n")
+        os.chmod(os.path.join(fake, "git"), 0o755)
+        saved_path = os.environ.get("PATH", "")
+        os.environ["PATH"] = fake + os.pathsep + saved_path
+        try:
+            said = _git(["rev-parse", "--show-toplevel"], tmp)
+            os.environ["FIXTURE_GIT_EXIT"] = "128"
+            refused = _git(["rev-parse", "--show-toplevel"], tmp)
+        finally:
+            os.environ["PATH"] = saved_path
+            os.environ.pop("FIXTURE_GIT_EXIT", None)
+        expect("git output that is not UTF-8 is read, not a crash",
+               isinstance(said, str) and said.startswith("/a/folder/"), repr(said)[:30])
+        expect("git refusing with bytes that are not UTF-8 reads as refused",
+               refused is None)
 
     # reader and caught_line: committed folders under tests/runlog/lines/
     lines = os.path.join(FIXTURES, "lines")
