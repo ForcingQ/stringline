@@ -318,6 +318,9 @@ def part_spans(qt, mt):
     return out
 
 
+UNORDERED_STEPS = 20000
+
+
 def corrected_place(text, parts, lead, trail, neg=True, ordered=True):
     """The place where a quote reads corrected, or None. The two switches never
     decide an outcome: diagnose turns one rule off at a time to learn which rule
@@ -330,14 +333,21 @@ def corrected_place(text, parts, lead, trail, neg=True, ordered=True):
     cands = [sorted((c for c in part_spans(q, mt) if c[2] <= budget),
                     key=lambda c: (c[2], c[0])) for q in qts]
     best = None
+    steps = 0
 
     def neg_in(a, b):
         return any(is_negation(t.raw) for t in mt[a:b])
 
     def go(idx, pos, cost, drops, chosen):
-        nonlocal best
+        nonlocal best, steps
         if best and cost > best[0]:
             return
+        if not ordered:
+            # only the search for another order is bounded: it explains, it never
+            # decides. Cut short, it finds nothing and an older reason is given.
+            steps += 1
+            if best or steps > UNORDERED_STEPS:
+                return
         if idx == len(parts):
             if neg and trail and neg_in(chosen[-1][1], len(mt)):
                 return
