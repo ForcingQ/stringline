@@ -22,13 +22,13 @@ Founded on 7 October 2026. It holds the intent, the files that say how the work 
 2. [BUILD-LOG.md](BUILD-LOG.md): what each session did, decided and got wrong, dated.
 3. [LEARNED.md](LEARNED.md): what I learned, in my own words, each session.
 4. [DECISIONS.md](DECISIONS.md): each decision and its reason.
-5. [MAP.md](MAP.md) and [SPEC.md](SPEC.md): the order of the work, and what is built next.
+5. [MAP.md](MAP.md) and [SPEC.md](SPEC.md): the order of the work, and the specification each part was built from.
 6. [OPEN-PROTOCOL.md](OPEN-PROTOCOL.md): how a working session opens and closes, and what waits for my word.
 7. [CLAUDE.md](CLAUDE.md): the instructions any AI agent working in this repository follows.
 
 ## Who builds it
 
-I'm Chad Wallace, and I direct it; the other files call me "the owner". Claude Code, Anthropic's AI coding tool, writes the implementation under my direction and review, and the record says which is which. Each session names the Claude model it ran on.
+I'm Chad Wallace, and I direct it; the other files call me "the owner". Claude Code, Anthropic's AI coding tool, writes the implementation under my direction and review, and the record says which is which. Each session names the Claude model it ran on. **Licence.** The font files in `site/fonts/` and `manual/look/fonts/` are not under this repository's MIT licence ([LICENSE](LICENSE)): each carries its own, the SIL Open Font License 1.1, with its full text and copyright notice beside it ([site/fonts/NOTICE.txt](site/fonts/NOTICE.txt)).
 
 ## What stays out
 

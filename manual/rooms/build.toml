@@ -6,7 +6,7 @@ The record of how this is built, session by session.
 - [BUILD-LOG.md](BUILD-LOG.md): what each session did, decided and got wrong, dated.
 - [DECISIONS.md](DECISIONS.md): each decision and its reason.
 - [MAP.md](MAP.md): what depends on what, and the order it sets.
-- [SPEC.md](SPEC.md): what is built next, precisely enough to build it.
+- [SPEC.md](SPEC.md): what was specified, precisely enough to build it.
 
 The work runs in [lanes](#term:lane), each with [the finished list](#term:finished-list) it wrote before it started. Tools still being built are named below, in progress.
 '''
