@@ -1,0 +1,5 @@
+# synthetic session record, written for this fixture; no real record is read
+# the body holds a closing tag with another id: it is body; the block ends at the closing tag with its own id
+exit = 0
+counts = { messages = 1 }
+out = "here is the note:\nwhat do you think of it\n"

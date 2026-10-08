@@ -1,0 +1,6 @@
+# synthetic session record, written for this fixture; no real record is read
+# no closing tag carries the opening tag's id: the block is left whole, in sight, and counted
+exit = 0
+counts = { messages = 1, blocks_left_whole = 1 }
+out = "here is the note:\n<pasted_content id=\"a1b2\">\nthe pasted words\n</pasted_content id=\"zz99\">\nwhat do you think of it\n"
+contains = ["blocks left whole: 1"]

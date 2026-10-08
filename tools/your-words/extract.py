@@ -35,16 +35,22 @@ read. Anything unhandled is caught at the entry point: one line under could
 not see, exit 2, no row, no output left. Words a person types as a slash command or its arguments
 go with the command. A block typed at a line's start with its closing tag is
 removed, as the harness's would be; a tag typed mid-line with no attribute, or
-with no closing tag, is kept. Removal runs to the first closing tag (a block
-whose body holds its own closing tag is not proven); a closing tag may carry
-attributes, as a real record's paste does (its id is repeated there), a shape
-no fixture held until a real run let six pasted blocks through as typed. A tag,
+with no closing tag, is kept. When the opening tag has an id, removal runs to
+the first closing tag that carries the same id, as a real record's paste does
+(every block measured in this build's own records closes with its opening id),
+so a closing tag with another id, or none, inside such a block is body; when
+the opening tag has no id, to the first closing tag, bare or with attributes.
+No fixture held the real shape until a real run let six pasted blocks through
+as typed. A tag,
 opening or closing, sits on one line, and a > inside a double-quoted attribute
 does not end it; a tag broken across lines is not a tag here and is kept. In a
 closing tag only name=value pairs count as attributes: prose after the name,
 or a bare word (</name hidden>), closes nothing, and that block is kept whole
-where a reader can see it, never cut short. A closing tag's id is not compared
-with the opening tag's. Limit: --out and --times
+where a reader can see it, never cut short. Every block left whole (an
+opening tag that would have opened a block, with no closing tag that matches)
+is counted in the summary line and the row as blocks left whole, so a reader
+need not search the output for one; a tag's name typed at a line's start with
+nothing closing it is counted there too. Limit: --out and --times
 are compared as one name after Unicode composition and then case folding, not
 composed again after; a few Greek letters with two accents (U+0390, U+03B0 and
 their kin) against their capitals are one file to some file systems and two
@@ -81,7 +87,8 @@ TAGS = ("pasted_content", "system-reminder", "command-name", "command-message",
 MARKER = "[Request interrupted"
 TYPED_SOURCES = ("typed", "queued")
 COUNTS = ("messages", "later", "nothing_typed", "harness_skipped", "events_skipped",
-          "parts_skipped", "edge_blank_dropped", "inner_blank_kept", "cant_read")
+          "parts_skipped", "edge_blank_dropped", "inner_blank_kept", "blocks_left_whole",
+          "cant_read")
 
 
 class CantRead(Exception):
@@ -114,10 +121,19 @@ TAG_REST = re.compile(r'''(?:"[^"\n]*"|[^>"\n])*>''')  # the rest of a tag, to i
 CLOSER_REST = (r'''(?:[ \t]+[A-Za-z_][\w:.-]*=(?:"[^"\n]*"|'[^'\n]*'|[^\s"'<>=]+))*'''
                r"[ \t]*>")
 
+# a tag's id, as a real record writes it on a paste's opening and closing tag
+TAG_ID = re.compile(r'''(?:^|[ \t])id=(?:"([^"\n]*)"|'([^'\n]*)'|([^\s"'<>=]+))''')
+
+
+def tag_id(attrs):
+    m = TAG_ID.search(attrs)
+    return next((g for g in m.groups() if g is not None), None) if m else None
+
 
 def remove_blocks(text):
-    """(text with the harness's blocks removed, [removed pasted_content bodies])."""
-    pastes = []
+    """(text with the harness's blocks removed, [removed pasted_content bodies],
+    how many blocks were left whole because no closing tag matched)."""
+    pastes, whole = [], 0
     names = "|".join(re.escape(t) for t in TAGS)
     opener = re.compile(r"<(" + names + r")([ >])")
     pos = 0
@@ -133,13 +149,23 @@ def remove_blocks(text):
         tag_end = opened.end() - 1 if opened else -1
         has_attr = m.group(2) == " " and tag_end > m.end(2) and \
             text[m.end(2):tag_end].strip() != ""
-        # a closing tag is bare, or carries attributes: a real record repeats a
-        # paste's id in it (</pasted_content id="...">); a longer name is no closer.
-        # It is looked for after the opening tag, never inside it.
-        closer = re.compile(r"</" + re.escape(name) + CLOSER_REST
-                            ).search(text, tag_end + 1) if tag_end >= 0 else None
+        # a closing tag is looked for after the opening tag, never inside it; a
+        # longer name is no closer. When the opening tag has an id, only a closing
+        # tag with that id closes it (a real record repeats a paste's id there):
+        # one with another id, or none, is part of the body. With no id on the
+        # opening tag, the first closing tag closes it, bare or with attributes.
+        closer = None
+        if tag_end >= 0:
+            want = tag_id(text[m.end(1):tag_end])
+            for c in re.compile(r"</" + re.escape(name) + CLOSER_REST
+                                ).finditer(text, tag_end + 1):
+                if want is None or tag_id(c.group(0)[len(name) + 2:-1]) == want:
+                    closer = c
+                    break
         close = closer.start() if closer else -1
         if tag_end < 0 or close < 0 or not (at_line_start or has_attr):
+            if tag_end >= 0 and close < 0 and (at_line_start or has_attr):
+                whole += 1  # it would have opened a block; nothing closed it
             pos = m.end(1)
             continue
         end = closer.end()
@@ -157,7 +183,7 @@ def remove_blocks(text):
         else:
             text = text[:start] + text[end:]
             pos = start
-    return text, pastes
+    return text, pastes, whole
 
 
 def remove_markers(text):
@@ -410,7 +436,8 @@ def extract(records):
                 if (when, rno, lno) > msg["key"] and recurs(msg["text"], payload):
                     msg["quoted"].append(stamp)
             continue
-        text, pastes = remove_blocks(payload)
+        text, pastes, whole = remove_blocks(payload)
+        counts["blocks_left_whole"] += whole
         text = remove_markers(text)
         for msg in messages:
             for paste in pastes:
@@ -485,6 +512,7 @@ def report(result):
                  f" · other events skipped: {by_type(result['events'])} · parts skipped:"
                  f" {by_type(result['parts'])} · edge blank lines dropped:"
                  f" {c['edge_blank_dropped']} · inner blank lines kept: {c['inner_blank_kept']}"
+                 f" · blocks left whole: {c['blocks_left_whole']}"
                  f" · can't read: {c['cant_read']}")
     lines.append("read: " + (", ".join(result["read"]) or "nothing"))
     if result["could_not"]:

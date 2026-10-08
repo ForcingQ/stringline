@@ -1,0 +1,6 @@
+# synthetic session record, written for this fixture; no real record is read
+# the twin: an opening tag with no id closes at the first closing tag, whatever it carries
+exit = 0
+counts = { messages = 1 }
+out = "here is the note:\nwhat do you think of it\n"
+contains = ["blocks left whole: 0"]
