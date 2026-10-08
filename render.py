@@ -18,7 +18,9 @@ head as one style block (its {fonts} token replaced by the page's own way to sit
 every file in manual/look/fonts/ is copied to site/fonts/ byte for byte. Refused, one line, exit
 2: a style block that is missing, empty or holds a closing style tag; a font the block names
 that is not there; a font file with no LICENSE-<face>.txt beside it, or no NOTICE.txt (a face
-never ships bare); a link in the fonts folder; a folder that cannot be read. Dot-files and
+never ships bare); a link anywhere in the look (the folder, the style block, the fonts
+folder or a file in it: a link could publish a file from elsewhere on the machine); a folder
+that cannot be read. Dot-files and
 sub-folders there are skipped. The front page lists the rooms: each room's title and the first
 block of its body, whole. The current room is marked in the nav with aria-current.
 In place, site/ is wholly derived and is replaced; under `--out <dir>` it writes only the files
@@ -198,6 +200,11 @@ def load_look(manual):
     their licences. Returns (style text, {file name: bytes}). A missing or empty style block,
     or a font the block names that is not there, is a refusal, never a page with no look."""
     look = os.path.join(manual, 'look')
+    # nothing here is reached through a link: a link could bring a file from anywhere on the
+    # machine into pages and font files that are published
+    for rel in ('look', 'look/style.css', 'look/fonts'):
+        if os.path.islink(os.path.join(manual, *rel.split('/'))):
+            raise RenderError(f'manual/{rel}: a link, not a file or folder')
     try:
         with open(os.path.join(look, 'style.css'), encoding='utf-8') as f:
             style = f.read()
@@ -491,6 +498,14 @@ def selftest_cases(case):
                  'NOTICE.txt: a font ships without it'),
                 ('a fonts folder that cannot be read',
                  lambda d: os.chmod(os.path.join(d, 'look', 'fonts'), 0o000), 'manual/look/fonts: cannot read'),
+                ('a style block that is a link',
+                 lambda d: (os.rename(os.path.join(d, 'look', 'style.css'), os.path.join(d, 'look', 'kept.css')),
+                            os.symlink('kept.css', os.path.join(d, 'look', 'style.css'))),
+                 'manual/look/style.css: a link'),
+                ('a fonts folder that is a link',
+                 lambda d: (os.rename(os.path.join(d, 'look', 'fonts'), os.path.join(d, 'look', 'kept')),
+                            os.symlink('kept', os.path.join(d, 'look', 'fonts'))),
+                 'manual/look/fonts: a link'),
                 ('a link in the fonts folder',
                  lambda d: os.symlink('NOTICE.txt', os.path.join(d, 'look', 'fonts', 'FIXTURE-link.txt')),
                  'FIXTURE-link.txt: a link, not a file'),
@@ -506,7 +521,8 @@ def selftest_cases(case):
             except RenderError as e:
                 case(f'the look: {label} is refused', needle in str(e) and tmp not in str(e))
             finally:
-                os.chmod(os.path.join(broken, 'look', 'fonts'), 0o755)
+                if not os.path.islink(os.path.join(broken, 'look', 'fonts')):
+                    os.chmod(os.path.join(broken, 'look', 'fonts'), 0o755)
 
         keep = os.path.join(tmp, 'keep')
         os.makedirs(os.path.join(keep, 'site'))
