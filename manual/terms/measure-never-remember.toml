@@ -1,0 +1,3 @@
+id = "measure-never-remember"
+term = "measure, never remember"
+body = "A session reads the actual state of the files and the repository before stating it, rather than trusting what an earlier session said."
