@@ -103,8 +103,34 @@ def snapshot(base, skip):
     return out
 
 
+def source_links(root):
+    """Every symbolic link among what the renderer reads, looked for in the tree itself and
+    before anything is copied: each source, each folder on the way to it, and everything under
+    a source folder, with nothing skipped and no link followed. The copy below must never be
+    kinder than the tree: a link the copy resolved, or left out, would read green here while
+    the renderer refuses it, or publishes through it."""
+    found = []
+    for rel in SOURCES:
+        parts = rel.split(os.sep)
+        for i in range(1, len(parts) + 1):
+            if os.path.islink(os.path.join(root, *parts[:i])):
+                found.append('/'.join(parts[:i]))
+        src = os.path.join(root, rel)
+        if os.path.isdir(src) and not os.path.islink(src):
+            for d, dirs, files in os.walk(src, followlinks=False):
+                for name in sorted(dirs + files):
+                    if os.path.islink(os.path.join(d, name)):
+                        found.append(os.path.relpath(os.path.join(d, name), root).replace(os.sep, '/'))
+    return sorted(set(found))
+
+
 def copy_sources(root, dest):
     """Copies what the renderer reads; the renderer then runs from dest, never from the tree."""
+    links = source_links(root)
+    if links:
+        more = f' (and {len(links) - 1} more)' if len(links) > 1 else ''
+        raise CantTell(f'{links[0]}: a link among what the renderer reads{more}; '
+                       f'nothing was rendered')
     for rel in SOURCES:
         src = os.path.join(root, rel)
         if os.path.isdir(src):
@@ -168,8 +194,13 @@ def check(root):
         return 2, "CAN'T TELL: render.py not found at the repository root"
     try:
         skip = ignored(root)
+        links = source_links(root)
     except CantTell as e:
         return 2, f"CAN'T TELL: {e}"
+    if links:
+        more = f' (and {len(links) - 1} more)' if len(links) > 1 else ''
+        return 2, (f"CAN'T TELL: {links[0]}: a link among what the renderer reads{more}; "
+                   f"nothing was rendered")
     before = snapshot(root, skip)
     with tempfile.TemporaryDirectory() as src, tempfile.TemporaryDirectory() as out:
         copy_sources(root, src)
@@ -242,6 +273,27 @@ def selftest_cases(case):
         edit = read(fixture('hand-edit-readme.txt'))
         case('clean control', 0, 'GREEN', check(tree))
         case('the check left the tree as it found it', 0, '', (0 if snapshot(tree, set()) == before else 1, ''))
+
+        # a link among what the renderer reads is can't tell, found in the tree before any copy:
+        # a record, a link in the one folder the copy skips, a run row, and manual/ itself
+        os.symlink(os.path.join('..', '..', 'README.md'), p('manual', 'terms', 'FIXTURE-link.toml'))
+        case('a record that is a link', 2, "CAN'T TELL: manual/terms/FIXTURE-link.toml: a link", check(tree))
+        os.remove(p('manual', 'terms', 'FIXTURE-link.toml'))
+        os.makedirs(p('manual', SKIP))
+        os.symlink('nowhere', p('manual', SKIP, 'FIXTURE-link'))
+        case('a link inside the folder the copy skips', 2,
+             f"CAN'T TELL: manual/{SKIP}/FIXTURE-link: a link", check(tree))
+        shutil.rmtree(p('manual', SKIP))
+        os.makedirs(p('runs'), exist_ok=True)
+        os.symlink('nowhere', p('runs', 'FIXTURE-link.json'))
+        case('a run row that is a link', 2, "CAN'T TELL: runs/FIXTURE-link.json: a link", check(tree))
+        os.remove(p('runs', 'FIXTURE-link.json'))
+        os.rename(p('manual'), p('FIXTURE-manual-kept'))
+        os.symlink('FIXTURE-manual-kept', p('manual'))
+        case('manual/ itself a link', 2, "CAN'T TELL: manual: a link", check(tree))
+        os.remove(p('manual'))
+        os.rename(p('FIXTURE-manual-kept'), p('manual'))
+        case('green again with every link gone', 0, 'GREEN', check(tree))
 
         put(p('site', '.DS_Store'), b'fixture\n')
         case('a file git ignores under site/ is skipped and counted', 0, '1 ignored by git', check(tree))
