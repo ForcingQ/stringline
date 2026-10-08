@@ -1,0 +1,38 @@
+id = "claude"
+
+[[sections]]
+heading = "Instructions for an AI agent working in this repository"
+body = '''
+Read [INTENT.md](INTENT.md) first. Where anything disagrees with it, the intent governs. How a session opens and closes is in [OPEN-PROTOCOL.md](OPEN-PROTOCOL.md).
+'''
+
+[[sections]]
+heading = "Write for a stranger"
+body = '''
+Everything in this repository is read by people who were never in the room. Use plain words. Do not use private shorthand, internal ids, or names of the owner's other projects. No client or person is named except the owner, {owner}. No file path points into anyone's machine. If a sentence only makes sense to someone who was there, rewrite it or leave it out.
+'''
+
+[[sections]]
+heading = "Two folders"
+body = '''
+- **This repository** is public-bound. Everything in it is written for a stranger.
+- **`../stringline-private`**, beside it, holds the owner's words, the working notes, review reports and the private close of each session. It is never inside this repository. Nothing moves from it into this one without being rewritten for a stranger. Name it only as `../stringline-private`. If you are working on the owner's machine, read `../stringline-private/OPEN-LOCAL.md` when a session opens. It holds the local setup this repository cannot.
+'''
+
+[[sections]]
+heading = "Before every push"
+body = '''
+- Scan every changed file and every commit message against the private word list (`python3 ../stringline-private/guard/scan.py --files <files>`, and `--stdin` for a message). The list lives in the private folder on purpose: a list of private words cannot be published. The scanner's design is public (`SPEC-push-scanner.md`); the copy that reads the private list runs privately.
+- The local pre-push hook runs the same scan over everything being pushed and refuses the push on any hit. It is local, never committed, so a fresh clone does not have it. Do not push from a clone without it, and never skip it.
+- Never change this repository's visibility. Making it public is the owner's act.
+'''
+
+[[sections]]
+heading = "How to work"
+body = '''
+- Stage and commit by path, in one motion. Never commit everything.
+- Say what you looked at and what you compared against. When you cannot see something, say "can't tell", never "clean".
+- A check is not trusted until it has been shown to fire on the fault it guards against.
+- The record says who did what: the owner directs and reviews; the agent writes the implementation.
+- Every page of the manual, every record of its source, and every file of prose here fits on one screen (60 lines). Code is not bound by it.
+'''

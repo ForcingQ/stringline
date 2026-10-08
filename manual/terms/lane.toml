@@ -1,0 +1,3 @@
+id = "lane"
+term = "lane"
+body = "One AI agent session with one aim and its own finished list, run beside other lanes. Anything it finds outside its aim gets a home elsewhere and is not pursued there."
