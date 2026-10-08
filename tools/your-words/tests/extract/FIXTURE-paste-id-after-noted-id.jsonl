@@ -1,0 +1,1 @@
+{"type": "user", "timestamp": "2026-01-01T10:01:00.000Z", "promptSource": "typed", "message": {"role": "user", "content": "see this\n<pasted_content note=\"was id=old1\" id=\"k3q9\">\nthe pasted words\n</pasted_content id=\"k3q9\">\nand answer"}}

@@ -1,0 +1,5 @@
+# synthetic session record, written for this fixture; no real record is read
+# a closing tag whose other attribute's value holds id=k3q9 does not carry that id: it is body
+exit = 0
+counts = { messages = 1 }
+out = "see this\nand answer\n"

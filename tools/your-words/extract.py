@@ -121,13 +121,34 @@ TAG_REST = re.compile(r'''(?:"[^"\n]*"|[^>"\n])*>''')  # the rest of a tag, to i
 CLOSER_REST = (r'''(?:[ \t]+[A-Za-z_][\w:.-]*=(?:"[^"\n]*"|'[^'\n]*'|[^\s"'<>=]+))*'''
                r"[ \t]*>")
 
-# a tag's id, as a real record writes it on a paste's opening and closing tag
-TAG_ID = re.compile(r'''(?:^|[ \t])id=(?:"([^"\n]*)"|'([^'\n]*)'|([^\s"'<>=]+))''')
+# a tag's attributes, read pair by pair, so a quoted value is taken whole and
+# the letters id= inside another attribute's value are never an id
+ATTR = re.compile(r'''([A-Za-z_][\w:.-]*)=(?:"([^"\n]*)"|'([^'\n]*)'|([^\s"'<>=]+))''')
+QUOTED = re.compile(r'"[^"\n]*"' r"|'[^'\n]*'")
 
 
 def tag_id(attrs):
-    m = TAG_ID.search(attrs)
-    return next((g for g in m.groups() if g is not None), None) if m else None
+    """The value of the attribute named exactly id (the first, if two), or None."""
+    i = 0
+    while i < len(attrs):
+        if attrs[i] in " \t":
+            i += 1
+            continue
+        m = ATTR.match(attrs, i)
+        if m:
+            if m.group(1) == "id":
+                return next(g for g in m.groups()[1:] if g is not None)
+            i = m.end()
+            continue
+        q = QUOTED.match(attrs, i)  # a loose quoted run is stepped over whole
+        if q:
+            i = q.end()
+            continue
+        j = i
+        while j < len(attrs) and attrs[j] not in " \t\"'":
+            j += 1
+        i = max(j, i + 1)
+    return None
 
 
 def remove_blocks(text):
@@ -436,8 +457,7 @@ def extract(records):
                 if (when, rno, lno) > msg["key"] and recurs(msg["text"], payload):
                     msg["quoted"].append(stamp)
             continue
-        text, pastes, whole = remove_blocks(payload)
-        counts["blocks_left_whole"] += whole
+        text, pastes, _ = remove_blocks(payload)
         text = remove_markers(text)
         for msg in messages:
             for paste in pastes:
@@ -465,6 +485,8 @@ def extract(records):
                          "private": names[rno - 1].startswith(runlog.OUTSIDE),
                          "typed": [], "pasted": [], "quoted": [], "tie": tie})
     counts["messages"] = len(messages)
+    # counted over what is written, so the count is the number in the output
+    counts["blocks_left_whole"] = sum(remove_blocks(m["text"])[2] for m in messages)
     counts["later"] = sum(len(m["typed"]) + len(m["pasted"]) + len(m["quoted"])
                           for m in messages)
     counts["events_skipped"] = sum(events_skipped.values())
