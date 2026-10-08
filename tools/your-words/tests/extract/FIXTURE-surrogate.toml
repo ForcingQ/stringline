@@ -1,0 +1,7 @@
+# synthetic session record, written for this fixture; no real record is read
+# a lone surrogate in typed text (valid JSON, not writable as UTF-8): that event is
+# can't read, named by record and line; the readable rest is written, exit 2
+exit = 2
+counts = { messages = 1, cant_read = 1 }
+out = "the readable rest\n"
+contains = ["FIXTURE-surrogate.jsonl:1 · text that is not valid Unicode"]

@@ -30,7 +30,12 @@ each pass as typed. Words a person types as a slash command or its arguments
 go with the command. A block typed at a line's start with its closing tag is
 removed, as the harness's would be; a tag typed mid-line with no attribute, or
 with no closing tag, is kept. Removal runs to the first closing tag (a block
-whose body holds its own closing tag is not proven). A span quoted back from
+whose body holds its own closing tag is not proven). Limit: --out and --times
+are compared as one name after Unicode composition and then case folding, not
+composed again after; a few Greek letters with two accents (U+0390, U+03B0 and
+their kin) against their capitals are one file to some file systems and two
+names here. Such a pair is not refused up front; the second write fails and is
+caught: one line, exit 2, nothing left written. A span quoted back from
 inside a message is not counted, only a whole message's text.
 Python 3.11 or later, standard library only, plus git.
 """
@@ -203,27 +208,29 @@ def _rel(path, root):
 
 
 def working_trees(root):
-    """The repository's own top folder and every worktree git lists for it; None
-    when git cannot be run, so the worktree check cannot be made."""
-    tops = [root]
+    """(the repository's top folder and every worktree git lists for it, None),
+    or (None, why) when git is absent or refuses: the check cannot be made, and
+    a check that cannot be made never falls back to writing."""
     try:
         out = subprocess.run(["git", "worktree", "list", "--porcelain"], cwd=root,
                              capture_output=True, text=True, timeout=30)
     except (OSError, subprocess.SubprocessError):
-        return None
-    if out.returncode == 0:
-        tops += [os.path.realpath(line[len("worktree "):])
-                 for line in out.stdout.splitlines() if line.startswith("worktree ")]
-    return tops
+        return None, "git cannot be run here"
+    if out.returncode != 0:
+        said = (out.stderr.strip().splitlines() or ["no reason given"])[0]
+        return None, f"git refused to list the worktrees (exit {out.returncode}: {said})"
+    tops = [root] + [os.path.realpath(line[len("worktree "):])
+                     for line in out.stdout.splitlines() if line.startswith("worktree ")]
+    return tops, None
 
 
 def inside_repository(folder, root):
     """Inside the repository or any of its worktrees, by folder identity and by
     git's own answer, never by path text."""
     real = os.path.realpath(folder)
-    tops = working_trees(root)
+    tops, why = working_trees(root)
     if tops is None:
-        return None  # cannot tell: the caller refuses
+        return why  # cannot tell: the caller refuses with this reason
     if runlog.repo_root(real) in tops:
         return True
     here = real
@@ -248,9 +255,9 @@ def refuse_target(path, root, what):
     if not os.path.isdir(folder):
         return f"{what}: its folder does not exist"
     inside = inside_repository(folder, root)
-    if inside is None:
-        return (f"{what}: git cannot be run here, so whether its folder lies inside a"
-                " worktree of the repository cannot be told; nothing is written")
+    if isinstance(inside, str):
+        return (f"{what}: {inside}, so whether its folder lies inside a worktree of"
+                " the repository cannot be told; nothing is written")
     if inside:
         return (f"{what}: its folder lies inside the repository that holds the tool, or"
                 " one of its worktrees; extracted text is private and never lands in"
@@ -342,6 +349,11 @@ def extract(records):
                     counts["harness_skipped"] += 1
                     continue
                 raw, skipped = user_text(event)
+                try:
+                    raw.encode("utf-8")
+                except UnicodeEncodeError:
+                    raise CantRead("text that is not valid Unicode (a lone surrogate)"
+                                   " and cannot be written as UTF-8") from None
                 for t in skipped:
                     parts_skipped[t] = parts_skipped.get(t, 0) + 1
                 material.append((when, rno, lno, "user", raw, stamp))
@@ -491,9 +503,10 @@ def run(records, out, times, planted, no_log, quiet=False):
                 with open(target, "x", encoding="utf-8") as fh:
                     made.append(target)
                     fh.write(body(result))
-    except OSError as exc:
+    except (OSError, UnicodeError) as exc:
+        detail = exc.strerror if isinstance(exc, OSError) and exc.strerror else exc
         return give_up(f"the output could not be written ({type(exc).__name__}:"
-                       f" {exc.strerror or exc}); nothing was logged and nothing written")
+                       f" {detail}); nothing was logged and nothing written")
     if not no_log:
         try:
             path = runlog.write(TOOL, OWN_FILES, kind, planted or "", "person",
@@ -562,9 +575,12 @@ def selftest(no_log):
                         continue
                     before = [p and os.path.exists(p) and open(p, "rb").read()
                               for p in (out, times)]
-                    if scratch_root == "no-git":  # git off the PATH: cannot tell, refuse
+                    if scratch_root in ("no-git", "git-refuses"):
+                        # git off the PATH, or a git that runs and refuses: cannot
+                        # tell, refuse, never fall back to writing
                         saved_path = os.environ.get("PATH", "")
-                        os.environ["PATH"] = ""
+                        os.environ["PATH"] = "" if scratch_root == "no-git" else \
+                            os.path.join(tmp, "refusing-git") + os.pathsep + saved_path
                         try:
                             why = refuse_targets(out, times, root)
                         finally:
@@ -699,6 +715,15 @@ def refusal_targets(targets, tmp, root):
             decomposed = unicodedata.normalize("NFD", "FIXTURE-caf\u00e9.txt")
             out.append((name, os.path.join(tmp, composed), os.path.join(tmp, decomposed),
                         "name the same file", None))
+        elif name == "git-refuses":
+            fake = os.path.join(tmp, "refusing-git")
+            os.makedirs(fake, exist_ok=True)
+            with open(os.path.join(fake, "git"), "w", encoding="utf-8") as fh:
+                fh.write("#!/bin/sh\necho 'fatal: a fixture git that always refuses' >&2\n"
+                         "exit 128\n")
+            os.chmod(os.path.join(fake, "git"), 0o755)
+            out.append((name, os.path.join(tmp, "git-refuses-typed.txt"), None,
+                        "git refused to list the worktrees (exit 128", "git-refuses"))
         elif name == "no-git":
             out.append((name, os.path.join(tmp, "no-git-typed.txt"), None,
                         "git cannot be run here", "no-git"))
