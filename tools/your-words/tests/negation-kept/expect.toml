@@ -1,0 +1,4 @@
+# the owner's ruling (#50): a replacement that keeps the negation is a typing fix
+outcomes = { corrected = 1 }
+exit = 0
+contains = ["dont → don't (edit)"]

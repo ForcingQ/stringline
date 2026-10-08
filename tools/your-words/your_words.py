@@ -11,6 +11,8 @@ not found.
 
 Each quote (*"…"* in markdown, outside code) reads exact, corrected, absent or
 can't check, against the typed messages in WORDS.txt (SPEC-your-words.md).
+Negations: not, no, never, none, nor, cannot, nothing, nobody, nowhere, neither,
+and any word ending in n't, with or without its apostrophe.
 Python 3.11 or later, standard library only, plus git.
 """
 
@@ -34,7 +36,8 @@ OPEN, CLOSE, ELLIPSIS = '*"', '"*', "…"
 EDGE = ".,;:!?\"'()[]"
 CURLY = str.maketrans({"‘": "'", "’": "'", "‚": "'", "‛": "'",
                        "“": '"', "”": '"', "„": '"', "‟": '"'})
-NEGATIONS = {"not", "no", "never", "none", "nor"}
+NEGATIONS = {"not", "no", "never", "none", "nor",
+             "cannot", "nothing", "nobody", "nowhere", "neither"}  # the owner's ruling, #51
 # "ends in n't, with or without its apostrophe": the apostrophe-less forms are
 # listed, because every word ending in "nt" (want, point, present) is not one.
 BARE_NT = {"dont", "doesnt", "didnt", "cant", "couldnt", "wont", "wouldnt", "isnt",
@@ -63,11 +66,12 @@ learning to earning, reads corrected; a verbatim fragment cut from a negated
 sentence reads exact; an … over three or more plain words reads exact: read
 the change and the words shown around it); a quote not marked with *" "*; a
 quote split over two lines; anything typed that is not in the typed file; a
-negation outside its closed list (not, no, never, none, nor, any word ending in
-n't, and dont, cant, wont and the other apostrophe-less forms in the code):
-cannot, nothing, nobody, nowhere, neither and without are not on it, so
-dropping one reads corrected. A negation typed without its apostrophe and
-quoted with it (dont to don't) reads corrected: the same word, typed two ways.
+negation outside its closed list (not, no, never, none, nor, cannot, nothing,
+nobody, nowhere, neither, any word ending in n't, and dont, cant, wont and the
+other apostrophe-less forms in the code): a word such as without is not on it,
+so dropping one reads corrected. A replacement that keeps the negation (dont to
+don't) is a typing fix and reads corrected; a flipped or dropped negation is
+absent.
 
 Exit: 0 nothing absent or unchecked · 1 a quote is absent · 2 none absent,
 some could not be checked. The exit is a report; nothing stops on it. Anything

@@ -1,0 +1,4 @@
+# the owner's ruling (#51): cannot is a negation; dropping it is absent
+outcomes = { absent = 1 }
+exit = 1
+contains = ["a negation dropped or skipped: cannot"]
