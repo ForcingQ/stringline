@@ -1,0 +1,44 @@
+{
+  "tool": "your-words",
+  "started": "2026-10-08T04:18:05.685288Z",
+  "kind": "real",
+  "planted_by": "",
+  "invoked_by": "person",
+  "read": [
+    "BUILD-LOG-2026-10-07-s1-the-founding.md",
+    "BUILD-LOG-2026-10-07-s2-see-and-name.md",
+    "BUILD-LOG-2026-10-07-s3-map-order-spec.md",
+    "BUILD-LOG-2026-10-07-s3b-spec-the-placed-items.md",
+    "BUILD-LOG.md",
+    "CLAUDE.md",
+    "DECISIONS.md",
+    "INTENT.md",
+    "LEARNED.md",
+    "MAP.md",
+    "OPEN-PROTOCOL.md",
+    "README.md",
+    "SPEC-card.md",
+    "SPEC-corpus.md",
+    "SPEC-done-list.md",
+    "SPEC-extractor.md",
+    "SPEC-guard.md",
+    "SPEC-push-scanner.md",
+    "SPEC-run-log.md",
+    "SPEC-workflow.md",
+    "SPEC-your-words.md",
+    "SPEC.md"
+  ],
+  "compared_against": [
+    "WORDS.txt"
+  ],
+  "outcomes": {
+    "exact": 5,
+    "corrected": 5,
+    "absent": 0,
+    "cant_check": 0,
+    "spoken": 0
+  },
+  "caught": [],
+  "could_not": [],
+  "tool_version": "84d2ff1c761b48451a97a7886d66027bc5d89785"
+}
