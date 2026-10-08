@@ -18,7 +18,10 @@ no text is red, never green (the front page is exempt from the body rule: the sp
 body). A README or CLAUDE.md section whose record body has no visible text is red; sections are
 read from manual/readers/, never by parsing `#` lines out of the rendered file.
 What it does not prove: that the prose is right, or that the site looks finished; that a renderer
-reaching outside its folders touched nothing but site/, README.md and CLAUDE.md.
+reaching outside its folders touched nothing but site/, README.md and CLAUDE.md; that a room body
+whose markup renders no text (a lone `- `) is not hidden by a derived list that fills its page
+(the how-it-runs terms, the tools room's cards). Visible text is as render.py's header says.
+Absolute paths in any line it prints are cut to their last component.
 Prints one line: GREEN · ..., RED: <file>: <what>, or CAN'T TELL: <what>, the renderer's own
 reason included; exits 0, 1 or 2. A crash of this check is CAN'T TELL.
 """
@@ -45,13 +48,27 @@ class CantTell(Exception):
     pass
 
 
-def env():
-    return dict(os.environ, PYTHONDONTWRITEBYTECODE='1')
+def env(cwd=None):
+    """The environment a command runs in; for the renderer, PWD names the scratch copy, so a
+    renderer that writes under its working folder writes into the copy, never the tree."""
+    out = dict(os.environ, PYTHONDONTWRITEBYTECODE='1')
+    out.pop('OLDPWD', None)
+    if cwd:
+        out['PWD'] = cwd
+    return out
+
+
+# Letters and symbols with no visible glyph of their own: the Hangul fillers and the blank
+# Braille pattern. Unicode gives them ordinary categories, so they are named here.
+BLANK = {'\u115f', '\u1160', '\u3164', '\uffa0', '\u2800'}
 
 
 def visible(text):
+    """True when text holds a character with a visible glyph: not white space or a separator
+    (Z*), not a control, format or unassigned code (C*), not a combining mark alone (M*), and not
+    one of the blank-looking letters in BLANK."""
     return isinstance(text, str) and any(
-        not unicodedata.category(ch).startswith(('Z', 'C')) for ch in text)
+        not unicodedata.category(ch).startswith(('Z', 'C', 'M')) and ch not in BLANK for ch in text)
 
 
 def listing(base):
@@ -97,9 +114,15 @@ def copy_sources(root, dest):
             shutil.copy(src, os.path.join(dest, rel))
 
 
+# An absolute path starts a token (after a space, a quote or a bracket), never inside one, so a
+# repository-relative path such as manual/site.toml is left whole.
+ABSOLUTE = re.compile(r'(?<![\w.~-])(?:[A-Za-z]:|~)?[\\/](?:[^\s\'"\\/:]+[\\/])*([^\s\'"\\/:]+)')
+
+
 def last_line(data):
+    """The last line a command printed, any absolute path in it cut to its last component."""
     lines = [l.strip() for l in data.decode('utf-8', 'replace').splitlines() if l.strip()]
-    return lines[-1] if lines else ''
+    return ABSOLUTE.sub(r'\1', lines[-1]) if lines else ''
 
 
 def first_difference(a, b):
@@ -149,7 +172,7 @@ def check(root):
         copy_sources(root, src)
         try:
             run = subprocess.run([sys.executable, 'render.py', '--out', out], cwd=src,
-                                 env=env(), capture_output=True, timeout=120)
+                                 env=env(src), capture_output=True, timeout=120)
             failed = None
         except (OSError, subprocess.SubprocessError) as e:
             run, failed = None, f"CAN'T TELL: render.py could not be run ({type(e).__name__})"
@@ -246,11 +269,27 @@ def selftest_cases(case):
                  'RED: README.md: the renderer wrote into the tree', check(tree))
         finally:
             del os.environ['FIXTURE_TREE']
+        put(p('README.md'), before['README.md'] + edit)
+        put(p('render.py'), read(fixture('writes-under-pwd-render.py')))
+        kept_pwd = os.environ.get('PWD')
+        os.environ['PWD'] = tree  # as if the shell were in the tree when the check ran
+        try:
+            case('a renderer that writes under $PWD, with the shell in the tree', 1,
+                 'RED: CLAUDE.md: the render did not write it', check(tree))
+        finally:
+            if kept_pwd is None:
+                del os.environ['PWD']
+            else:
+                os.environ['PWD'] = kept_pwd
+        case('the $PWD renderer could not touch the hand edit', 0, '',
+             (0 if read(p('README.md')).endswith(edit) else 1, ''))
         put(p('README.md'), before['README.md'])
         for name, want, line in (('empty-render.py', 1, 'RED: render.py: the render wrote nothing'),
                                  ('empty-page-render.py', 1, 'RED: README.md: the render wrote an empty page'),
                                  ('empty-main-render.py', 1, 'RED: site/build.html: the render wrote an empty page'),
-                                 ('crash-render.py', 2, "CAN'T TELL: render.py exited 1: RuntimeError: fixture crash")):
+                                 ('crash-render.py', 2, "CAN'T TELL: render.py exited 1: RuntimeError: fixture crash"),
+                                 ('crash-with-path-render.py', 2,
+                                  "CAN'T TELL: render.py exited 1: RuntimeError: fixture crash in render.py")):
             put(p('render.py'), read(fixture(name)))
             case(f'{name[:-3]} stand-in', want, line, check(tree))
         os.remove(p('render.py'))
@@ -261,6 +300,8 @@ def selftest_cases(case):
                 (('site.toml',), 'empty-owner-site.toml', 2, 'owner is empty', False),
                 (('rooms', 'build.toml'), 'empty-body-room.toml', 2, 'body has no visible text', False),
                 (('readers', 'claude.toml'), 'empty-section-reader.toml', 1,
+                 'RED: CLAUDE.md: section 2 has no body', True),
+                (('readers', 'claude.toml'), 'invisible-section-reader.toml', 1,
                  'RED: CLAUDE.md: section 2 has no body', True),
                 (('readers', 'claude.toml'), 'comment-lines-reader.toml', 0, 'GREEN', True)):
             kept = read(p('manual', *record))

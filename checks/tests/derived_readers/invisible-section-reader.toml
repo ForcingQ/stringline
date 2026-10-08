@@ -1,0 +1,9 @@
+id = "claude"
+
+[[sections]]
+heading = "Fixture title"
+body = "Fixture text under the title."
+
+[[sections]]
+heading = "Fixture section whose body has only invisible characters"
+body = "​⁠ㅤ ⠀"

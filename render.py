@@ -15,7 +15,10 @@ labels are INTENT.md's words (what it is, the first thing to do, the one gotcha,
 caught), "The failure that earned it" is SPEC.md's phrase, and "in progress" is SPEC-card.md's.
 In place, site/ is wholly derived and is replaced; under `--out <dir>` it writes only the files
 it renders and deletes nothing. Standard library only, Python 3.11 or later.
-Exit 0 on success, 2 when it cannot render (the reason on standard error, one line).
+Visible text: at least one character outside Unicode's Z, C and M categories and not a
+blank-looking letter (Hangul fillers, blank Braille); an owner, a room body or a card's what
+without one is refused. Exit 0 on success, 2 when it cannot render (the reason on standard
+error, one line).
 """
 import html
 import os
@@ -49,10 +52,17 @@ ID = re.compile(r'[a-z0-9-]+')  # an id becomes a file name and an HTML id: noth
 RESERVED_ROOMS = ('index',)  # a room called index would replace the front page
 
 
+# Letters and symbols with no visible glyph of their own: the Hangul fillers and the blank
+# Braille pattern. Unicode gives them ordinary categories, so they are named here.
+BLANK = {'\u115f', '\u1160', '\u3164', '\uffa0', '\u2800'}
+
+
 def visible(text):
-    """True when text holds a character a reader can see: not white space, control or format."""
+    """True when text holds a character with a visible glyph: not white space or a separator
+    (Z*), not a control, format or unassigned code (C*), not a combining mark alone (M*), and not
+    one of the blank-looking letters in BLANK."""
     return isinstance(text, str) and any(
-        not unicodedata.category(ch).startswith(('Z', 'C')) for ch in text)
+        not unicodedata.category(ch).startswith(('Z', 'C', 'M')) and ch not in BLANK for ch in text)
 
 
 class RenderError(Exception):
@@ -376,6 +386,9 @@ def selftest_cases(case):
         case('an owner of white space is refused', refused(manual, os.path.join(tmp, 'h'), stub, 'owner is empty'))
         shutil.copy(os.path.join(FIX, 'site-zero-width-owner.toml'), site_toml)
         case('an owner with no visible character is refused', refused(manual, os.path.join(tmp, 'i'), stub, 'owner is empty'))
+        shutil.copy(os.path.join(FIX, 'site-hangul-filler-owner.toml'), site_toml)
+        case('an owner of a blank-looking letter (U+3164) is refused',
+             refused(manual, os.path.join(tmp, 'k'), stub, 'owner is empty'))
         shutil.move(site_toml + '.kept', site_toml)
 
         for fixture, folder, name in (('room-empty-how-it-runs', 'rooms', 'how-it-runs'),
