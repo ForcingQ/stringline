@@ -371,5 +371,46 @@
   "log_has": [
    "arguments could not be read"
   ]
+ },
+ {
+  "label": "unreadable arguments: the allow resets the counter, so the next block is 1 of 3",
+  "state": "bad-args-reset",
+  "list": "open-items.md",
+  "inputs": [
+   "h03-open-items.json",
+   "h03-open-items.json",
+   "h22-bad-args.json",
+   "h03-open-items.json"
+  ],
+  "argv_extra_per": [
+   [],
+   [],
+   [
+    "--no-such-flag"
+   ],
+   []
+  ],
+  "expect": [
+   "block",
+   "block",
+   "allow",
+   "block"
+  ],
+  "reason_has": [
+   [
+    "continuation 1 of 3"
+   ],
+   [
+    "continuation 2 of 3"
+   ],
+   [],
+   [
+    "continuation 1 of 3"
+   ]
+  ],
+  "log_has": [
+   "arguments could not be read"
+  ],
+  "counter": 1
  }
 ]

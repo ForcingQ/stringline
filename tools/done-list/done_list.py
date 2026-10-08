@@ -16,9 +16,11 @@ holds, and a weak command passes weak work); that a YOURS stop was honoured
 that the hook reaches a background seat (it acts on Stop only).
 
 Interrupts: each check runs in its own process group, so its timeout can end
-the whole group. A hook ended by SIGTERM or SIGINT ends the running check's
-group before it exits. SIGKILL cannot be caught; the check then ends at its
-own timeout, enforced by a small watchdog process started beside each check.
+the whole group. A small watchdog process starts beside each check: it leaves
+as soon as the check's group is empty, and ends the group at its timeout. A
+hook ended by SIGTERM or SIGINT ends the running check's group and its watchdog
+before it exits. SIGKILL cannot be caught; the check then ends at its own
+timeout, by its watchdog, which then leaves too.
 
 Shape (SPEC-done-list.md): one block in a markdown file, between
 <!-- done-list root="..." cap=3 timeout=60 --> and <!-- /done-list -->, each
@@ -274,10 +276,16 @@ class DoneList:
 
 # ---------------------------------------------------------------- running
 
-RUNNING = []  # the process group of the check now running, for the hook's interrupt
+RUNNING = []  # [check's process group, its watchdog] now running, for the hook's interrupt
+# The watchdog leaves as soon as the check's group is empty, so it never kills a
+# group number the check no longer owns; at the deadline it ends the group.
 WATCHDOG = ("import os,signal,sys,time\n"
-            "time.sleep(float(sys.argv[2]))\n"
-            "try: os.killpg(int(sys.argv[1]), signal.SIGKILL)\n"
+            "g = int(sys.argv[1]); end = time.monotonic() + float(sys.argv[2])\n"
+            "while time.monotonic() < end:\n"
+            "    try: os.killpg(g, 0)\n"
+            "    except OSError: sys.exit(0)\n"
+            "    time.sleep(0.2)\n"
+            "try: os.killpg(g, signal.SIGKILL)\n"
             "except OSError: pass\n")
 
 
@@ -301,10 +309,11 @@ def run_command(cmd, root, timeout):
                                 start_new_session=True)
     except OSError as exc:
         return "CAN'T TELL", f"could not start ({type(exc).__name__})"
-    RUNNING.append(proc.pid)
+    running = [proc.pid, None]
+    RUNNING.append(running)
     dog = None
     try:
-        dog = subprocess.Popen([sys.executable, "-c", WATCHDOG, str(proc.pid), str(timeout + 1)],
+        dog = running[1] = subprocess.Popen([sys.executable, "-c", WATCHDOG, str(proc.pid), str(timeout + 1)],
                                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                                stderr=subprocess.DEVNULL, start_new_session=True)
     except OSError:
@@ -316,7 +325,7 @@ def run_command(cmd, root, timeout):
         proc.wait()
         return "CAN'T TELL", f"timed out after {timeout}s; its process group ended"
     finally:
-        RUNNING.remove(proc.pid)
+        RUNNING.remove(running)
         if dog is not None:
             dog.kill()
             dog.wait()
@@ -571,10 +580,15 @@ def _reason(open_lines, k, cap):
 
 
 def _on_interrupt(signum, frame):
-    """SIGTERM or SIGINT: end the running check's group, then leave. The fired
-    line stays without its acted line, which report counts as killed."""
-    for pgid in list(RUNNING):
+    """SIGTERM or SIGINT: end the running check's group and its watchdog, then
+    leave. The fired line stays without its acted line: report counts it killed."""
+    for pgid, dog in list(RUNNING):
         _end_group(pgid)
+        if dog is not None:
+            try:
+                dog.kill()
+            except OSError:
+                pass
     os._exit(0)
 
 
@@ -743,6 +757,33 @@ def cmd_report(args):
 TESTS = os.path.join(HERE, "tests")
 
 
+def _descendants(root_pid):
+    """Every live process descended from root_pid, from one ps snapshot."""
+    out = subprocess.run(["ps", "-axo", "pid=,ppid="], capture_output=True, text=True).stdout
+    kids = {}
+    for row in out.split("\n"):
+        parts = row.split()
+        if len(parts) == 2:
+            kids.setdefault(int(parts[1]), []).append(int(parts[0]))
+    found, todo = [], [root_pid]
+    while todo:
+        for kid in kids.get(todo.pop(), []):
+            found.append(kid)
+            todo.append(kid)
+    return found
+
+
+def _alive(pid):
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except OSError:
+        return True
+    out = subprocess.run(["ps", "-o", "stat=", "-p", str(pid)], capture_output=True, text=True)
+    return not out.stdout.strip().startswith("Z")  # a zombie has ended
+
+
 def _selftest(no_log):
     results = []
 
@@ -802,8 +843,9 @@ def _selftest(no_log):
                 except ValueError:
                     pass
                 lst = os.path.join(TESTS, case["list"])
+                extra = case.get("argv_extra_per", [case.get("argv_extra", [])] * len(case["inputs"]))[i]
                 code, out, err = run(["hook", "--list", lst, "--state", state, "--planted", "selftest"]
-                                     + case.get("argv_extra", []), stdin)
+                                     + extra, stdin)
                 want = case["expect"][i]
                 if want == "block":
                     try:
@@ -855,11 +897,12 @@ def _selftest(no_log):
                     expect(f"{case['label']}: counter reads {case['counter']}", k == case["counter"],
                            str(k))
         print("== a hook fire killed while its check runs")
-        kills = () if not shutil.which("pgrep") else (
+        kills = () if not (shutil.which("pgrep") and shutil.which("ps")) else (
             (signal.SIGTERM, "killed-mid-check.md", "4712", 0.0),
-            (signal.SIGKILL, "killed-hard.md", "4713", 3.5))
+            (signal.SIGKILL, "killed-hard.md", "4713", 3.5),
+            (signal.SIGKILL, "killed-check-ends.md", "2.4714", 2.5))
         if not kills:
-            print("can't tell whether a killed fire leaves a child: no pgrep here")
+            print("can't tell whether a killed fire leaves a process: no pgrep or ps here")
         for sig, lst, num, wait in kills:
             state = os.path.join(tmp, f"killed-{num}")
             with open(os.path.join(TESTS, "h23-killed.json"), encoding="utf-8") as fh:
@@ -876,19 +919,53 @@ def _selftest(no_log):
                     seen = True
                     break
                 time.sleep(0.1)
+            time.sleep(0.3)  # the watchdog starts just after the check
+            family = _descendants(proc.pid)  # the check's shell, its sleeps, the watchdog
             proc.send_signal(sig)
             proc.wait()
-            time.sleep(wait + 0.3)
-            left = subprocess.run(["pgrep", "-f", f"sleep {num}"], capture_output=True).returncode
-            if left == 0:
-                subprocess.run(["pkill", "-f", f"sleep {num}"])
+            time.sleep(wait + 1.0)
+            left = [pid for pid in family if _alive(pid)]
+            for pid in left:
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                except OSError:
+                    pass
             name = "SIGTERM" if sig == signal.SIGTERM else "SIGKILL"
-            after = "at once" if sig == signal.SIGTERM else "by its own timeout (the watchdog)"
-            print(f"   {name} to the hook mid-check ({lst}): child left: {'yes' if left == 0 else 'no'}")
-            expect(f"a fire killed with {name} leaves no child, {after}", seen and left == 1,
+            after = ("one second later" if sig == signal.SIGTERM else
+                     "the watchdog leaving when its check ends" if num == "2.4714" else
+                     "once its timeout has passed")
+            print(f"   {name} to the hook mid-check ({lst}): processes of the fire {len(family)},"
+                  f" left {len(left)}")
+            expect(f"a fire killed with {name} leaves no process at all, {after}",
+                   seen and len(family) >= 2 and not left,
                    "" if seen else "the check was never seen running")
             code, out, _ = run(["report", "x.md", "--state", state])
             expect(f"report counts the {name} fire as killed", "killed: 1" in out)
+
+        if kills:  # the handler itself: it ends the group and the watchdog, not timing alone
+            probe = ("import os, subprocess, sys\n"
+                     "sys.path.insert(0, sys.argv[1])\n"
+                     "import done_list as d\n"
+                     "quiet = dict(stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)\n"
+                     "g = subprocess.Popen(['sleep', '4715'], start_new_session=True, **quiet)\n"
+                     "dog = subprocess.Popen(['sleep', '4716'], start_new_session=True, **quiet)\n"
+                     "d.RUNNING.append([g.pid, dog])\n"
+                     "print(g.pid, dog.pid, flush=True)\n"
+                     "d._on_interrupt(15, None)\n")
+            try:  # its sleeps hold no pipe of ours, so a handler that leaves them cannot hang this
+                out = subprocess.run([sys.executable, "-B", "-c", probe, HERE], capture_output=True,
+                                     text=True, timeout=20,
+                                     env=dict(os.environ, PYTHONDONTWRITEBYTECODE="1")).stdout
+            except subprocess.TimeoutExpired:
+                out = ""
+            pids = [int(x) for x in out.split()]
+            time.sleep(0.1)
+            left = [pid for pid in pids if _alive(pid)]
+            for pid in left:
+                os.kill(pid, signal.SIGKILL)
+            print(f"   the interrupt handler, called directly: group and watchdog left {len(left)}")
+            expect("the interrupt handler ends the check's group and its watchdog before leaving",
+                   len(pids) == 2 and not left)
 
         print("== run rows, in a scratch repository")
         repo = os.path.join(tmp, "repo")
@@ -987,8 +1064,13 @@ def _hook_bad_args(argv):
         if not state:
             raise OSError("no --state or --list could be read")
         _log(state, entry)
-        _log(state, dict(entry, time=_now(), step="acted", action="error",
-                         note="the hook's arguments could not be read"))
+        note = "the hook's arguments could not be read"
+        if entry["event"] == "Stop":  # every allow resets the count; only Stop touches it
+            try:
+                _set_blocks(state, entry["session_id"], 0)
+            except OSError as exc:
+                note += f"; the counter could not be reset ({type(exc).__name__})"
+        _log(state, dict(entry, time=_now(), step="acted", action="error", note=note))
     except OSError as exc:
         print(f"done-list hook: allowed; its arguments could not be read, and its log"
               f" could not be written ({type(exc).__name__})", file=sys.stderr)
