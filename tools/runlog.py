@@ -11,21 +11,54 @@ real one, so "has this ever caught something real?" had no answer in the log.
 Shape (SPEC-run-log.md): folder runs/, one JSON file per run, named
 <UTC YYYYMMDDTHHMMSS.ffffffZ>_<tool id>_<kind>.json, one key per line.
 Python 3.11 or later, standard library only, plus git.
+
+Import it by its path, never as a package (no folder here is one):
+    sys.path.insert(0, "<repository root>/tools"); import runlog
+
+`files` (write, tool_version): the tool's own files. A relative entry is relative
+to the root of the repository that holds this module (the card's form); an
+absolute entry is used as given (a tool in another repository passes these).
+Never resolved against the working folder.
+
+`read` and `compared_against`: paths relative to the repository, `fixture`, or
+the phrase "outside the repository"; an absolute path or one climbing out of
+the repository is refused (the folder is public; a path into a machine is not).
+
+Refusals, each its own class (all are RunLogError): BadKind · BadInvoker ·
+BadToolId (not lower-case letters, digits, hyphens) · UnnamedPlant ·
+SelftestWroteReal · RealReadFixture (`fixture`, or a path component `tests` in
+any letter case) · ReservedTool (a real row under `fixture-tool` in a tool's log
+folder; a self-test's own temporary folder may hold one) · MachinePath ·
+RealCarriesPlant (a real row with planted_by) · NotOneLine (a caught or
+could_not entry empty or holding a line break) · BadOutcomes (not a non-empty
+map of name to whole number).
+
+Limit, said plainly: the module never reads the corpus, so it does not know a
+tool's own outcome names. caught_line(tool, catching): a real row carrying a
+`catching` key is a checking run; one carrying only other keys is an "other
+run"; one with an empty outcomes map, or whose started time is not an ISO 8601
+UTC time, is can't tell, counted with the unreadable files. A misspelled key
+therefore reads as an other run, never as a catch.
 """
 
 import datetime
 import json
 import os
+import posixpath
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
 
 KINDS = ("planted", "real")
 INVOKERS = ("selftest", "person")
+RESERVED = "fixture-tool"
 FIELDS = ("tool", "started", "kind", "planted_by", "invoked_by", "read",
           "compared_against", "outcomes", "caught", "could_not", "tool_version")
 NAME_RE = re.compile(r"^(\d{8}T\d{6}\.\d{6}Z)_([^_]+)_([^_]+)\.json$")
+ID_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+OUTSIDE = "outside the repository"
 
 
 class RunLogError(ValueError):
@@ -34,6 +67,14 @@ class RunLogError(ValueError):
 
 class BadKind(RunLogError):
     """kind is neither planted nor real."""
+
+
+class BadInvoker(RunLogError):
+    """invoked_by is neither selftest nor person."""
+
+
+class BadToolId(RunLogError):
+    """A tool id that is not lower-case letters, digits and hyphens."""
 
 
 class UnnamedPlant(RunLogError):
@@ -48,51 +89,99 @@ class RealReadFixture(RunLogError):
     """A real row whose read or compared_against names fixture material."""
 
 
+class ReservedTool(RunLogError):
+    """A real row under the reserved id fixture-tool."""
+
+
+class MachinePath(RunLogError):
+    """A read or compared_against entry that is a path into a machine."""
+
+
+class RealCarriesPlant(RunLogError):
+    """A real row whose planted_by is not empty."""
+
+
+class NotOneLine(RunLogError):
+    """A caught or could_not entry that is empty or holds a line break."""
+
+
+class BadOutcomes(RunLogError):
+    """outcomes is not a non-empty map of outcome name to whole number."""
+
+
 # ---------------------------------------------------------------- locations
 
+_GIT_MISSING = object()
+
+
 def _git(args, cwd):
+    """git's standard output, None when git refused, _GIT_MISSING when absent."""
     try:
         out = subprocess.run(["git", *args], cwd=cwd, capture_output=True,
                              text=True, timeout=30)
+    except FileNotFoundError:
+        return _GIT_MISSING
     except (OSError, subprocess.SubprocessError):
         return None
     return out.stdout.strip() if out.returncode == 0 else None
 
 
 def repo_root(path):
-    """The top folder of the git repository holding path, or None."""
+    """The top folder of the repository holding path, or None. With no git on
+    the machine, the nearest folder above holding a .git entry."""
     folder = path if os.path.isdir(path) else os.path.dirname(os.path.abspath(path))
     top = _git(["rev-parse", "--show-toplevel"], folder)
+    if top is _GIT_MISSING:
+        here = os.path.realpath(folder)
+        while True:
+            if os.path.exists(os.path.join(here, ".git")):
+                return here
+            up = os.path.dirname(here)
+            if up == here:
+                return None
+            here = up
     return os.path.realpath(top) if top else None
 
 
-def _anchor(files):
-    """The tool's own file, made absolute; this module's file when none is given."""
-    return os.path.abspath(files[0]) if files else os.path.abspath(__file__)
+def module_root():
+    """The root of the repository holding this module; the folder above tools/
+    when it is in none."""
+    here = os.path.abspath(__file__)
+    return repo_root(here) or os.path.dirname(os.path.dirname(here))
+
+
+def _resolve(entry):
+    return entry if os.path.isabs(entry) else os.path.join(module_root(), entry)
+
+
+def _paths(files):
+    return [_resolve(f) for f in files] if files else [os.path.abspath(__file__)]
 
 
 def default_folder(files=None):
     """runs/ under the root of the repository holding the tool's own file;
     under the working folder when that file is in no repository."""
-    root = repo_root(_anchor(files))
+    root = repo_root(_paths(files)[0])
     return os.path.join(root if root else os.getcwd(), "runs")
 
 
 def tool_version(files):
     """The full id of the latest commit touching files, '+dirty' when they have
-    uncommitted changes, 'uncommitted' when none is committed, 'no git' otherwise."""
-    anchor = _anchor(files)
-    root = repo_root(anchor)
-    if root is None:
+    uncommitted changes, 'uncommitted' when none is committed (an empty history
+    included), 'no git' when git is unavailable or the folder is no repository."""
+    paths = _paths(files)
+    root = repo_root(paths[0])
+    if root is None or shutil.which("git") is None:
         return "no git"
-    paths = [os.path.relpath(os.path.realpath(os.path.abspath(f)), root)
-             for f in (files or [anchor])]
-    last = _git(["log", "-1", "--format=%H", "--", *paths], root)
-    if last is None:
+    rel = [os.path.relpath(os.path.realpath(p), root) for p in paths]
+    if _git(["rev-parse", "--verify", "--quiet", "HEAD"], root) is None:
+        return "uncommitted"  # a repository with no commit yet
+    last = _git(["log", "-1", "--format=%H", "--", *rel], root)
+    if not isinstance(last, str):
         return "no git"
     if not last:
         return "uncommitted"
-    dirty = _git(["status", "--porcelain", "--", *paths], root)
+    dirty = _git(["status", "--porcelain", "--", *rel], root)
     return last + "+dirty" if dirty else last
 
 
@@ -106,11 +195,28 @@ def _as_list(value):
     return [str(v) for v in value]
 
 
+def _clean(entry):
+    return posixpath.normpath(entry.strip().replace("\\", "/"))
+
+
 def _names_fixture(entry):
     if entry.strip().lower() == "fixture":
         return True
-    parts = re.split(r"[\\/]+", os.path.normpath(entry.replace("\\", "/")))
-    return "tests" in parts
+    return "tests" in [p.lower() for p in _clean(entry).split("/")]
+
+
+def _machine_path(entry):
+    raw = entry.strip()
+    if raw.lower().startswith(OUTSIDE) or raw.lower() == "fixture":
+        return False
+    if raw.startswith(("/", "\\", "~")) or re.match(r"^[A-Za-z]:", raw):
+        return True
+    clean = _clean(raw)
+    return clean == ".." or clean.startswith("../")
+
+
+def _clock():
+    return datetime.datetime.now(datetime.timezone.utc)
 
 
 def write(tool, files, kind, planted_by, invoked_by, read, compared_against,
@@ -119,33 +225,46 @@ def write(tool, files, kind, planted_by, invoked_by, read, compared_against,
     if kind not in KINDS:
         raise BadKind(f"kind must be planted or real, not {kind!r}")
     if invoked_by not in INVOKERS:
-        raise RunLogError(f"invoked_by must be selftest or person, not {invoked_by!r}")
+        raise BadInvoker(f"invoked_by must be selftest or person, not {invoked_by!r}")
+    if not isinstance(tool, str) or not ID_RE.match(tool):
+        raise BadToolId(f"a tool id is lower-case letters, digits and hyphens: {tool!r}")
     planted_by = (planted_by or "").strip()
+    read, compared_against = _as_list(read), _as_list(compared_against)
     if kind == "planted" and not planted_by:
         raise UnnamedPlant("a planted row must say what was planted and by whom")
-    if kind == "real" and planted_by:
-        raise RunLogError("a real row carries no planted_by")
     if kind == "real" and invoked_by == "selftest":
         raise SelftestWroteReal("a self-test writes planted rows only")
-    read, compared_against = _as_list(read), _as_list(compared_against)
     if kind == "real":
         bad = [e for e in read + compared_against if _names_fixture(e)]
         if bad:
             raise RealReadFixture(f"a real row read fixture material: {bad[0]}")
-    if not tool or "_" in tool:
-        raise RunLogError(f"a tool id is non-empty and carries no underscore: {tool!r}")
-    if not isinstance(outcomes, dict):
-        raise RunLogError("outcomes is a map of outcome name to count")
+        log = default_folder(files)
+        if tool == RESERVED and os.path.realpath(folder or log) == os.path.realpath(log):
+            raise ReservedTool(f"{RESERVED} is reserved for self-tests: no real row"
+                               " under it lands in a tool's log folder")
+    bad = [e for e in read + compared_against if _machine_path(e)]
+    if bad:
+        raise MachinePath("read and compared_against name paths in the repository,"
+                          " never a path into a machine")
+    if kind == "real" and planted_by:
+        raise RealCarriesPlant("a real row carries no planted_by")
+    caught, could_not = _as_list(caught), _as_list(could_not)
+    for entry in caught + could_not:
+        if not entry.strip() or "\n" in entry or "\r" in entry:
+            raise NotOneLine(f"caught and could_not hold one-line strings: {entry!r}")
+    if (not isinstance(outcomes, dict) or not outcomes or not all(
+            isinstance(v, int) and not isinstance(v, bool) and v >= 0
+            for v in outcomes.values())):
+        raise BadOutcomes("outcomes is a non-empty map of outcome name to count")
     folder = folder or default_folder(files)
     os.makedirs(folder, exist_ok=True)
     row = {
         "tool": tool, "started": None, "kind": kind, "planted_by": planted_by,
         "invoked_by": invoked_by, "read": read, "compared_against": compared_against,
         "outcomes": {str(k): v for k, v in outcomes.items()},
-        "caught": _as_list(caught), "could_not": _as_list(could_not),
-        "tool_version": tool_version(files),
+        "caught": caught, "could_not": could_not, "tool_version": tool_version(files),
     }
-    now = datetime.datetime.now(datetime.timezone.utc)
+    now = _clock()
     while True:  # two runs in one microsecond still leave two files
         stamp = now.strftime("%Y%m%dT%H%M%S.%fZ")
         row["started"] = now.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
@@ -168,13 +287,17 @@ class Rows(list):
         self.cant_tell = list(cant_tell)
 
 
-def _parse_time(text):
-    if not isinstance(text, str) or not text.endswith("Z"):
+def parse_time(text):
+    """An ISO 8601 time at UTC (basic or extended form), else None."""
+    if not isinstance(text, str):
         return None
     try:
-        return datetime.datetime.fromisoformat(text[:-1] + "+00:00")
+        when = datetime.datetime.fromisoformat(text.strip())
     except ValueError:
         return None
+    if when.tzinfo is None or when.utcoffset() != datetime.timedelta(0):
+        return None
+    return when
 
 
 def _check_row(row, name_tool, name_kind):
@@ -191,13 +314,15 @@ def _check_row(row, name_tool, name_kind):
         return f"name says {name_kind}, field says {row['kind']}"
     if row["tool"] != name_tool:
         return f"name says {name_tool}, field says {row['tool']}"
-    if _parse_time(row["started"]) is None:
-        return "started is not a UTC time"
+    if parse_time(row["started"]) is None:
+        return "started is not an ISO 8601 UTC time"
     if not isinstance(row["outcomes"], dict):
         return "outcomes is not a map"
+    if not row["outcomes"]:
+        return "outcomes is empty"
     for f in ("caught", "could_not", "read", "compared_against"):
-        if not isinstance(row[f], list):
-            return f"{f} is not a list"
+        if not isinstance(row[f], list) or not all(isinstance(e, str) for e in row[f]):
+            return f"{f} is not a list of strings"
     return None
 
 
@@ -209,6 +334,8 @@ def rows(tool, folder=None):
         names = sorted(os.listdir(folder))
     except FileNotFoundError:
         return Rows()
+    except OSError as exc:
+        return Rows((), [(folder, f"folder could not be listed ({type(exc).__name__})")])
     good, bad = [], []
     for name in names:
         if not name.endswith(".json"):
@@ -235,7 +362,7 @@ def rows(tool, folder=None):
         row = dict(row)
         row["_file"] = name
         good.append(row)
-    good.sort(key=lambda r: _parse_time(r["started"]), reverse=True)
+    good.sort(key=lambda r: parse_time(r["started"]), reverse=True)
     return Rows(good, bad)
 
 
@@ -244,21 +371,20 @@ def _plural(n, one, many):
 
 
 def caught_line(tool, catching=None, folder=None):
-    """The card's "what it has caught" sentence, from the tool's real rows only."""
+    """The card's "what it has caught" sentence, from the tool's real rows only.
+    An empty or absent `catching` means every real run is a checking run."""
     found = rows(tool, folder)
     unreadable = len(found.cant_tell)
     checking, other = [], []
     for row in found:
         if row["kind"] != "real":
             continue
-        keys = set(row["outcomes"])
-        if catching is None or keys & set(catching):
+        if not catching or set(row["outcomes"]) & set(catching):
             checking.append(row)
-        elif keys:
-            other.append(row)
         else:
-            unreadable += 1
-    caught = [(r["started"][:10], line) for r in checking for line in r["caught"]]
+            other.append(row)
+    caught = [(parse_time(r["started"]).strftime("%Y-%m-%d"), line)
+              for r in checking for line in r["caught"]]
     if not checking:
         parts = ["no checking run yet" if other else "no real run yet"]
     elif not caught:
@@ -285,153 +411,99 @@ def caught_line(tool, catching=None, folder=None):
 
 # ---------------------------------------------------------------- self-test
 
+FIXTURES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tests", "runlog")
+
+
 def _selftest():
+    import tomllib
+    global _clock
     results = []
 
     def expect(label, ok, shown=""):
-        results.append(ok)
+        results.append(bool(ok))
         print(f"{'ok  ' if ok else 'FAIL'} {label}" + (f" -> {shown}" if shown else ""))
 
-    def refuses(label, err, **kw):
-        args = dict(tool="fixture-tool", files=[__file__], kind="real", planted_by="",
-                    invoked_by="person", read=["a.md"], compared_against=["b.txt"],
-                    outcomes={"exact": 1}, caught=[], could_not=[], folder=folder)
-        args.update(kw)
+    # writer: every planted fault is a case in tests/runlog/writer-cases.json
+    with open(os.path.join(FIXTURES, "writer-cases.json"), encoding="utf-8") as fh:
+        cases = json.load(fh)
+    with tempfile.TemporaryDirectory() as tmp:
+        folder = os.path.join(tmp, "runs")
+        repo = os.path.join(tmp, "repo")
+        subprocess.run(["git", "init", "-q", repo], check=True)
+        open(os.path.join(repo, "tool.py"), "w").close()
+        for case in cases["cases"]:
+            args = dict(cases["base"], files=[__file__], folder=folder)
+            args.update(case["set"])
+            if args.pop("temp_repo", False):  # the default folder: the repo's runs/
+                args.update(files=[os.path.join(repo, "tool.py")], folder=None)
+            try:
+                path = write(**args)
+                got = "written"
+            except RunLogError as exc:
+                path, got = None, type(exc).__name__
+            expect(case["label"], got == case["expect"], got)
+            if path and case["expect"] == "written":
+                with open(path, encoding="utf-8") as fh:
+                    body = fh.read()
+                row = json.loads(body)
+                expect("  one key per line, every field, name and started agree",
+                       all(f'\n  "{f}":' in body for f in FIELDS) and
+                       os.path.basename(path)[:23] == re.sub(r"[-:]", "", row["started"]))
+        frozen = datetime.datetime(2026, 10, 7, 12, 0, 0, tzinfo=datetime.timezone.utc)
+        saved, _clock = _clock, (lambda: frozen)
         try:
-            write(**args)
-            expect(label, False, "written")
-        except err as exc:
-            expect(label, True, f"{type(exc).__name__}")
+            args = dict(cases["base"], files=[__file__], folder=os.path.join(tmp, "same"))
+            a, b = write(**args), write(**args)
+        finally:
+            _clock = saved
+        expect("two writes in one microsecond leave two files",
+               a != b and os.path.exists(a) and os.path.exists(b),
+               os.path.basename(b)[:23])
 
-    T = "fixture-tool"
+    # tool_version and where the log lands
+    here = os.getcwd()
     with tempfile.TemporaryDirectory() as tmp:
-        folder = os.path.join(tmp, "runs")
-        base = dict(tool=T, files=[__file__], compared_against=["b.txt"], folder=folder)
-        p1 = write(kind="planted", planted_by="selftest", invoked_by="selftest",
-                   read=["fixture"], outcomes={"exact": 1}, caught=[], could_not=[], **base)
-        p2 = write(kind="real", planted_by="", invoked_by="person", read=["a.md"],
-                   outcomes={"exact": 1}, caught=[], could_not=[], **base)
-        expect("planted row written", p1.endswith("_fixture-tool_planted.json"),
-               os.path.basename(p1)[24:])
-        expect("real row written", p2.endswith("_fixture-tool_real.json"),
-               os.path.basename(p2)[24:])
-        with open(p2, encoding="utf-8") as fh:
-            body = fh.read()
-        expect("one key per line, every field", all(f'"{f}":' in body for f in FIELDS)
-               and body.count("\n") >= len(FIELDS))
-        expect("tool_version is set", len(json.loads(body)["tool_version"]) >= 6,
-               json.loads(body)["tool_version"][:12])
-        a = write(kind="planted", planted_by="selftest", invoked_by="selftest",
-                  read=["fixture"], outcomes={}, caught=[], could_not=[], **base)
-        b = write(kind="planted", planted_by="selftest", invoked_by="selftest",
-                  read=["fixture"], outcomes={}, caught=[], could_not=[], **base)
-        expect("two writes in one second leave two files",
-               a != b and os.path.exists(a) and os.path.exists(b))
-        refuses("refuses kind = test", BadKind, kind="test")
-        refuses("refuses a plant with no planted_by", UnnamedPlant,
-                kind="planted", planted_by=" ")
-        refuses("refuses a real row from a self-test", SelftestWroteReal,
-                invoked_by="selftest")
-        refuses("refuses a real row reading fixture", RealReadFixture, read=["fixture"])
-        refuses("refuses a real row reading a tests path", RealReadFixture,
-                compared_against=["tools/x/./tests/words.txt"])
-        refuses("refuses a tests path hidden by ..", RealReadFixture,
-                read=["tools/tests/../tests/a.md"])
         try:
-            write(kind="real", planted_by="", invoked_by="person", read=["contests/a.md"],
-                  outcomes={}, caught=[], could_not=[], **base)
-            expect("a component merely containing 'tests' is not refused", True)
-        except RunLogError as exc:
-            expect("a component merely containing 'tests' is not refused", False, str(exc))
+            os.chdir(tmp)
+            land = default_folder(["tools/runlog.py"])
+            expect("relative files from another folder land under the tool's repository",
+                   land == os.path.join(module_root(), "runs"))
+            ver = tool_version(["tools/runlog.py"])
+            expect("relative files from another folder read a commit id",
+                   re.match(r"^[0-9a-f]{40}(\+dirty)?$", ver) is not None, ver[:12])
+        finally:
+            os.chdir(here)
+        plain = os.path.join(tmp, "plain")
+        os.makedirs(plain)
+        open(os.path.join(plain, "tool.py"), "w").close()
+        expect("a folder in no repository reads no git",
+               tool_version([os.path.join(plain, "tool.py")]) == "no git")
+        empty = os.path.join(tmp, "empty")
+        os.makedirs(empty)
+        subprocess.run(["git", "init", "-q", empty], check=True)
+        open(os.path.join(empty, "tool.py"), "w").close()
+        got = tool_version([os.path.join(empty, "tool.py")])
+        expect("a repository with no commit reads uncommitted", got == "uncommitted", got)
 
-    with tempfile.TemporaryDirectory() as tmp:
-        folder = os.path.join(tmp, "runs")
-        expect("missing folder gives no rows", rows(T, folder) == [] and
-               not rows(T, folder).cant_tell)
-        line = caught_line(T, folder=folder)
-        expect("blind twin: empty folder", line == "no real run yet", line)
-        os.makedirs(folder)
-
-        def put(name, row):
-            with open(os.path.join(folder, name), "w", encoding="utf-8") as fh:
-                fh.write(row if isinstance(row, str) else json.dumps(row))
-
-        def row(kind, started, caught=(), could_not=(), outcomes=None, tool=T):
-            return {"tool": tool, "started": started, "kind": kind,
-                    "planted_by": "selftest" if kind == "planted" else "",
-                    "invoked_by": "person", "read": ["a.md"], "compared_against": [],
-                    "outcomes": {"exact": 1} if outcomes is None else outcomes,
-                    "caught": list(caught), "could_not": list(could_not),
-                    "tool_version": "uncommitted"}
-
-        put("20261001T000000.000000Z_fixture-tool_planted.json",
-            row("planted", "2026-10-01T00:00:00.000000Z", caught=["a plant, never a catch"]))
-        line = caught_line(T, folder=folder)
-        expect("planted rows only", line == "no real run yet", line)
-        put("20261002T000000.000000Z_fixture-tool_real.json",
-            row("real", "2026-10-02T00:00:00.000000Z"))
-        line = caught_line(T, folder=folder)
-        expect("one real row, nothing caught", line == "1 real run, nothing caught yet", line)
-        put("20261003T000000.000000Z_fixture-tool_real.json",
-            row("real", "2026-10-03T00:00:00.000000Z", could_not=["words file missing"]))
-        line = caught_line(T, folder=folder)
-        expect("two real rows, one blind",
-               line == "2 real runs, nothing caught yet · 1 run could not see everything", line)
-        # name order and started order disagree: started wins
-        put("20261004T000000.000000Z_fixture-tool_real.json",
-            row("real", "2026-10-05T00:00:00.000000Z", caught=["quote absent: page:3"]))
-        put("20261005T000000.000000Z_fixture-tool_real.json",
-            row("real", "2026-10-04T00:00:00.000000Z", caught=["quote absent: page:9"]))
-        got = rows(T, folder)
-        expect("rows newest first by started", [r["started"][:10] for r in got] ==
-               ["2026-10-05", "2026-10-04", "2026-10-03", "2026-10-02", "2026-10-01"])
-        line = caught_line(T, folder=folder)
-        expect("caught lines, newest first", line == "2026-10-05 quote absent: page:3; "
-               "2026-10-04 quote absent: page:9 · 1 run could not see everything", line)
-        put("20261006T000000.000000Z_fixture-tool_real.json", '{"tool": "fixture-tool"}')
-        put("20261007T000000.000000Z_fixture-tool_real.json", "not json {")
-        put("20261008T000000.000000Z_fixture-tool_real.json",
-            row("planted", "2026-10-08T00:00:00.000000Z"))
-        put("20261009T000000.000000Z_other-tool_real.json", "ignored: another tool")
-        put("notes.txt", "ignored: not .json")
-        got = rows(T, folder)
-        reasons = dict(got.cant_tell)
-        expect("no kind is can't tell",
-               reasons.get("20261006T000000.000000Z_fixture-tool_real.json") == "no kind")
-        expect("not JSON is can't tell",
-               "not readable JSON" in reasons.get("20261007T000000.000000Z_fixture-tool_real.json", ""))
-        expect("name real, field planted is can't tell",
-               "name says real" in reasons.get("20261008T000000.000000Z_fixture-tool_real.json", ""))
-        expect("other tools and non-json ignored", len(got.cant_tell) == 3 and len(got) == 5)
-        line = caught_line(T, folder=folder)
-        expect("could-not-be-read tail beside good rows",
-               line.endswith(" · 3 run files could not be read"), line)
-        for i in range(10):
-            put(f"2026101{i}T000000.000000Z_fixture-tool_real.json",
-                row("real", f"2026-10-1{i}T00:00:00.000000Z", caught=[f"catch {i}"]))
-        line = caught_line(T, folder=folder)
-        expect("at most ten, then and n more", line.count("catch ") == 10 and
-               "; and 2 more" in line and line.startswith("2026-10-19 catch 9"), line[:40] + "…")
-
-    with tempfile.TemporaryDirectory() as tmp:
-        folder = os.path.join(tmp, "runs")
-        os.makedirs(folder)
-        cat = ["exact", "corrected", "absent", "cant_check"]
-        put("20261001T000000.000000Z_fixture-tool_real.json",
-            row("real", "2026-10-01T00:00:00.000000Z", outcomes={"messages": 3}))
-        line = caught_line(T, catching=cat, folder=folder)
-        expect("only other runs", line == "no checking run yet · 1 other run", line)
-        put("20261002T000000.000000Z_fixture-tool_real.json",
-            row("real", "2026-10-02T00:00:00.000000Z", outcomes={"exact": 0, "absent": 0}))
-        put("20261003T000000.000000Z_fixture-tool_real.json",
-            row("real", "2026-10-03T00:00:00.000000Z", outcomes={"messages": 0},
-                could_not=["record 1:4"]))
-        put("20261004T000000.000000Z_fixture-tool_real.json",
-            row("real", "2026-10-04T00:00:00.000000Z", outcomes={}))
-        line = caught_line(T, catching=cat, folder=folder)
-        expect("checking and other runs told apart", line == "1 real run, nothing caught yet"
-               " · 2 other runs · 1 of them could not see everything"
-               " · 1 run file could not be read", line)
+    # reader and caught_line: committed folders under tests/runlog/lines/
+    lines = os.path.join(FIXTURES, "lines")
+    expect("missing folder gives no rows",
+           rows(RESERVED, os.path.join(lines, "no-such-folder")) == [])
+    for case in sorted(os.listdir(lines)):
+        folder = os.path.join(lines, case)
+        with open(os.path.join(folder, "expect.toml"), "rb") as fh:
+            want = tomllib.load(fh)
+        got = rows(RESERVED, folder)
+        if "order" in want:
+            expect(f"{case}: rows newest first by started",
+                   [r["_file"][:8] for r in got] == want["order"],
+                   " ".join(r["_file"][:8] for r in got))
+        for name, reason in want.get("cant_tell", {}).items():
+            expect(f"{case}: {name} is can't tell ({reason})",
+                   reason in dict(got.cant_tell).get(name, ""),
+                   dict(got.cant_tell).get(name, "read as a row"))
+        line = caught_line(RESERVED, catching=want.get("catching"), folder=folder)
+        expect(f"{case}: line", line == want["line"], line)
 
     passed = all(results)
     print(f"{sum(results)}/{len(results)} fixtures")

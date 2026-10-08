@@ -1,0 +1,19 @@
+{
+  "tool": "fixture-tool",
+  "started": "2026-10-08T00:00:00.000000+02:00",
+  "kind": "real",
+  "planted_by": "",
+  "invoked_by": "person",
+  "read": [
+    "a.md"
+  ],
+  "compared_against": [
+    "b.txt"
+  ],
+  "outcomes": {
+    "exact": 1
+  },
+  "caught": [],
+  "could_not": [],
+  "tool_version": "uncommitted"
+}
