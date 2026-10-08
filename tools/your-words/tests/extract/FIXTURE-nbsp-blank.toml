@@ -1,0 +1,5 @@
+# synthetic session record, written for this fixture; no real record is read
+# an inner line of one no-break space is blank to both halves: two blocks, two times lines
+exit = 0
+counts = { messages = 1, inner_blank_kept = 1 }
+out = "first\n\u00a0\nsecond\n"

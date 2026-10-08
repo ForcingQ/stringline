@@ -12,7 +12,16 @@ misspelling the person typed, read as if it were the source.
 It is the second half of the your-words tool (SPEC-extractor.md): it writes
 the checker's plain-text shape, one typed message per block, white space kept
 exactly. It produces and catches nothing: it never exits 1, and its row's
-caught is always empty.
+caught is always empty. When the run log refuses its row (a real run over
+fixtures), it reads can't read, exits 2 and writes nothing.
+
+A timestamp is read only in the shape the records carry: ISO 8601 at UTC with
+milliseconds, ending Z (2026-01-01T10:00:00.000Z). A space for the T, the
+compact form, an offset, a week date, or no zone is another shape: can't read.
+--out and --times are refused when a file is there, the folder is missing,
+both name one file, or the folder lies inside the repository or any of its
+worktrees (folder identity, git's top level, git's worktree list). Limit: a
+separate clone of the repository is another repository, and is not refused.
 
 Named limits. The table of harness tags below is hand-kept: a tag or marker
 outside it, a short paste the harness did not tag, a prompt an agent wrote
@@ -31,6 +40,7 @@ import datetime
 import json
 import os
 import re
+import subprocess
 import sys
 import tempfile
 import tomllib
@@ -39,6 +49,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 sys.path.insert(0, HERE)  # the checker beside it, also under python3 -I
 import runlog  # noqa: E402  (imported by its path: tools/ holds no package)
+import your_words  # noqa: E402  (the checker: one rule for a blank line and a block)
 
 TOOL = "your-words"
 OWN_FILES = ["tools/your-words/your_words.py", "tools/your-words/extract.py",
@@ -59,17 +70,21 @@ class CantRead(Exception):
 
 # ---------------------------------------------------------------- reading
 
+STAMP = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z")
+
+
 def parse_stamp(value):
-    """A timestamp parsed as a UTC date; CantRead for another shape or no zone."""
+    """A timestamp in the records' own shape, parsed as a UTC date; CantRead else."""
     if not isinstance(value, str):
         raise CantRead("no timestamp")
+    if not STAMP.fullmatch(value):
+        if re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?", value):
+            raise CantRead("timestamp without a zone")
+        raise CantRead("timestamp of another shape")
     try:
-        when = datetime.datetime.fromisoformat(value)
+        return datetime.datetime.fromisoformat(value[:-1] + "+00:00")
     except ValueError:
         raise CantRead("timestamp of another shape") from None
-    if when.tzinfo is None:
-        raise CantRead("timestamp without a zone")
-    return when.astimezone(datetime.timezone.utc)
 
 
 def remove_blocks(text):
@@ -115,16 +130,17 @@ def remove_markers(text):
 
 
 def trim_blank_edges(text):
-    """(text, edge blank lines dropped, inner blank lines kept)."""
-    lines = text.split("\n")
+    """(text, edge blank lines dropped, inner blank lines kept). A final line
+    break is the last line's ending, not a blank line: only blank lines count."""
+    lines = text.removesuffix("\n").split("\n")
     dropped = 0
-    while lines and lines[0].strip() == "":
+    while lines and your_words.is_blank(lines[0]):
         lines.pop(0)
         dropped += 1
-    while lines and lines[-1].strip() == "":
+    while lines and your_words.is_blank(lines[-1]):
         lines.pop()
         dropped += 1
-    inner = sum(1 for line in lines if line.strip() == "")
+    inner = sum(1 for line in lines if your_words.is_blank(line))
     return "\n".join(lines), dropped, inner
 
 
@@ -185,18 +201,35 @@ def _rel(path, root):
     return None
 
 
+def working_trees(root):
+    """The repository's own top folder and every worktree git lists for it."""
+    tops = [root]
+    try:
+        out = subprocess.run(["git", "worktree", "list", "--porcelain"], cwd=root,
+                             capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return tops
+    if out.returncode == 0:
+        tops += [os.path.realpath(line[len("worktree "):])
+                 for line in out.stdout.splitlines() if line.startswith("worktree ")]
+    return tops
+
+
 def inside_repository(folder, root):
-    """By folder identity and by git's own answer, never by path text."""
+    """Inside the repository or any of its worktrees, by folder identity and by
+    git's own answer, never by path text."""
     real = os.path.realpath(folder)
-    if runlog.repo_root(real) == root:
+    tops = working_trees(root)
+    if runlog.repo_root(real) in tops:
         return True
     here = real
     while True:
-        try:
-            if os.path.samefile(here, root):
-                return True
-        except OSError:
-            pass
+        for top in tops:
+            try:
+                if os.path.samefile(here, top):
+                    return True
+            except OSError:
+                pass
         up = os.path.dirname(here)
         if up == here:
             return False
@@ -211,8 +244,27 @@ def refuse_target(path, root, what):
     if not os.path.isdir(folder):
         return f"{what}: its folder does not exist"
     if inside_repository(folder, root):
-        return (f"{what}: its folder lies inside the repository that holds the tool;"
-                " extracted text is private and never lands in the public tree")
+        return (f"{what}: its folder lies inside the repository that holds the tool, or"
+                " one of its worktrees; extracted text is private and never lands in"
+                " the public tree")
+    return None
+
+
+def refuse_targets(out, times, root):
+    """Both output paths checked together, before either file is opened."""
+    for path, what in ((out, "--out"), (times, "--times")):
+        if path:
+            why = refuse_target(path, root, what)
+            if why:
+                return why
+    if times:
+        a, b = os.path.abspath(out), os.path.abspath(times)
+        try:
+            same_folder = os.path.samefile(os.path.dirname(a), os.path.dirname(b))
+        except OSError:
+            same_folder = os.path.dirname(a) == os.path.dirname(b)
+        if same_folder and os.path.basename(a).casefold() == os.path.basename(b).casefold():
+            return "--out and --times name the same file; nothing is written"
     return None
 
 
@@ -376,9 +428,7 @@ def words_file(result):
 def times_file(result):
     out, block = [], 0
     for m in result["messages"]:
-        pieces = [p for p in re.split(r"\n[ \t\r\f\v]*\n(?:[ \t\r\f\v]*\n)*", m["text"])
-                  if p.strip()]
-        for _ in pieces:
+        for _ in your_words.split_blocks(m["text"]):  # as the checker counts blocks
             block += 1
             out.append(f"block {block} · {m['stamp']} · {m['where']} · {later_text(m)}")
     return "".join(line + "\n" for line in out)
@@ -390,13 +440,30 @@ def exit_code(result):
 
 def run(records, out, times, planted, no_log, quiet=False):
     root = runlog.module_root()
-    for path, what in ((out, "--out"), (times, "--times")):
-        if path:
-            why = refuse_target(path, root, what)
-            if why:
-                print(f"refused · {why}")
-                return 2
+    why = refuse_targets(out, times, root)
+    if why:
+        print(f"refused · {why}")
+        return 2
     result = extract(records)
+    path, kind = None, "planted" if planted else "real"
+    if not no_log:
+        # the row first: a refused row leaves nothing written and reads can't read
+        try:
+            path = runlog.write(TOOL, OWN_FILES, kind, planted or "", "person",
+                                result["read"], [], dict(result["counts"]), [],
+                                result["could_not"])
+        except runlog.RunLogError as exc:
+            refused = (f"the run log refused this run's row ({type(exc).__name__}: {exc});"
+                       " nothing was logged and nothing written" +
+                       ("; a run on fixtures is a plant: give --planted"
+                        if kind == "real" else ""))
+            result["could_not"].append(refused)
+            result["counts"]["cant_read"] += 1
+            if not quiet:
+                print(f"can't read · {refused}")
+                for line in report(result):
+                    print(line)
+            return 2  # never a crash, never 1
     with open(out, "x", encoding="utf-8") as fh:
         fh.write(words_file(result))
     if times:
@@ -405,10 +472,7 @@ def run(records, out, times, planted, no_log, quiet=False):
     if not quiet:
         for line in report(result):
             print(line)
-    if not no_log:
-        kind = "planted" if planted else "real"
-        path = runlog.write(TOOL, OWN_FILES, kind, planted or "", "person", result["read"],
-                            [], dict(result["counts"]), [], result["could_not"])
+    if path:
         print(f"logged: {os.path.relpath(path, root)} ({kind})")
     return exit_code(result)
 
@@ -419,7 +483,9 @@ TESTS = os.path.join(HERE, "tests", "extract")
 
 
 def selftest(no_log):
-    results, totals = [], dict.fromkeys(COUNTS, 0)
+    import contextlib
+    import io
+    results, totals, skipped = [], dict.fromkeys(COUNTS, 0), []
     root = runlog.module_root()
 
     def expect(label, ok, shown=""):
@@ -436,15 +502,41 @@ def selftest(no_log):
             print(f"     {label}: {', '.join(os.path.basename(r) for r in records)}")
             mode = want.get("mode", "extract")
             if mode == "refuse":
-                for name, target in refusal_targets(want["targets"], tmp, root):
-                    if target is None:
-                        expect(f"{label}: {name}", False, "could not build this target here")
+                for name, out, times, reason, scratch_root in refusal_targets(
+                        want["targets"], tmp, root):
+                    if out is None:
+                        skipped.append(f"{label}: {name}: {reason}")
+                        print(f"skip {label}: {name}: cannot be built here ({reason})")
                         continue
-                    before = os.path.exists(target) and open(target, "rb").read()
-                    code = run(records, target, None, "selftest", True, quiet=True)
-                    after = os.path.exists(target) and open(target, "rb").read()
-                    expect(f"{label}: {name} refused, nothing written",
-                           code == 2 and before == after, f"exit {code}")
+                    before = [p and os.path.exists(p) and open(p, "rb").read()
+                              for p in (out, times)]
+                    if scratch_root:  # a scratch repository and its worktree
+                        why = refuse_targets(out, times, scratch_root)
+                        printed, code = f"refused · {why}" if why else "", 2 if why else 0
+                    else:
+                        buf = io.StringIO()
+                        with contextlib.redirect_stdout(buf):
+                            code = run(records, out, times, "selftest", True, quiet=True)
+                        printed = buf.getvalue()
+                    after = [p and os.path.exists(p) and open(p, "rb").read()
+                              for p in (out, times)]
+                    expect(f"{label}: {name} refused for its reason, nothing written",
+                           code == 2 and before == after and reason in printed,
+                           printed.strip() or f"exit {code}")
+                continue
+            if mode == "real-run":
+                # a person's real run, logging on, over fixtures: the run log refuses
+                # the row; the run reads can't read, exit 2, and writes nothing
+                out = os.path.join(tmp, label + "-real.txt")
+                buf = io.StringIO()
+                with contextlib.redirect_stdout(buf):
+                    code = run(records, out, None, None, False)
+                printed = buf.getvalue()
+                for line in printed.splitlines():
+                    print(f"       {line}")
+                expect(f"{label}: a real run over fixtures reads can't read, exit 2, nothing"
+                       " written", code == 2 and not os.path.exists(out) and
+                       all(n in printed for n in want.get("contains", [])), f"exit {code}")
                 continue
             result = extract(records)
             out = words_file(result)
@@ -463,8 +555,12 @@ def selftest(no_log):
                 ok = ok and any(needle in line for line in report(result))
             expect(f"{label}: exit {exit_code(result)}", ok,
                    "" if ok else f"{got} · out {out!r}")
+            if result["messages"]:
+                lines_t = len(times_file(result).splitlines())
+                blocks = len(your_words.split_blocks(out))
+                expect(f"{label}: times lines match the checker's blocks",
+                       lines_t == blocks, f"{lines_t} times lines, {blocks} blocks")
             if want.get("feed_checker"):
-                import your_words
                 path = os.path.join(tmp, label + "-typed.txt")
                 with open(path, "w", encoding="utf-8") as fh:
                     fh.write(out)
@@ -476,7 +572,9 @@ def selftest(no_log):
                        counts["exact"] >= 1 and counts["exact"] == sum(
                            counts[k] for k in ("exact", "corrected", "absent", "cant_check")))
     passed = bool(results) and all(results)
-    print(f"{sum(results)}/{len(results)} fixtures")
+    print(f"{sum(results)}/{len(results)} fixtures" +
+          (f" · {len(skipped)} could not be built on this machine (not counted as passed)"
+           if skipped else ""))
     if not no_log:
         path = runlog.write(TOOL, OWN_FILES, "planted", "selftest", "selftest", ["fixture"],
                             [], totals, [], [])
@@ -486,37 +584,67 @@ def selftest(no_log):
 
 
 def refusal_targets(targets, tmp, root):
-    """Each named way of pointing --out at a place it must refuse."""
+    """Each named way of pointing an output at a place it must refuse, built here:
+    (name, out, times, the reason it must print, a scratch root or None). A target
+    this machine cannot build comes back with out None and why."""
     out = []
+    inside = "inside the repository that holds the tool"
     for name in targets:
-        target = None
         if name == "existing":
             target = os.path.join(tmp, "existing.txt")
             if not os.path.exists(target):
                 with open(target, "w", encoding="utf-8") as fh:
                     fh.write("already here\n")
+            out.append((name, target, None, "a file exists there", None))
+        elif name == "no-folder":
+            out.append((name, os.path.join(tmp, "no-such-folder", "typed.txt"), None,
+                        "its folder does not exist", None))
+        elif name == "same-path":
+            p = os.path.join(tmp, "same.txt")
+            out.append((name, p, p, "name the same file", None))
+        elif name == "same-path-other-case":
+            out.append((name, os.path.join(tmp, "Same-Case.txt"),
+                        os.path.join(tmp, "same-case.txt"), "name the same file", None))
         elif name == "inside":
-            target = os.path.join(root, "FIXTURE-extracted.txt")
+            out.append((name, os.path.join(root, "FIXTURE-extracted.txt"), None, inside, None))
         elif name == "link":
             link = os.path.join(tmp, "link-to-repository")
             if not os.path.lexists(link):
                 os.symlink(root, link)
-            target = os.path.join(link, "FIXTURE-extracted.txt")
+            out.append((name, os.path.join(link, "FIXTURE-extracted.txt"), None, inside, None))
         elif name == "case":
             flipped = os.path.join(os.path.dirname(root), os.path.basename(root).swapcase())
-            target = os.path.join(flipped, "FIXTURE-extracted.txt")
+            if os.path.isdir(flipped) and os.path.samefile(flipped, root):
+                out.append((name, os.path.join(flipped, "FIXTURE-extracted.txt"), None,
+                            inside, None))
+            else:
+                out.append((name, None, None, "this file system tells letter case apart,"
+                            " so no other-case path names the repository", None))
         elif name == "alias":
             alias = "/System/Volumes/Data" + root
-            target = os.path.join(alias if os.path.isdir(alias) else root,
-                                  "FIXTURE-extracted.txt")
-        elif name == "no-folder":
-            target = os.path.join(tmp, "no-such-folder", "typed.txt")
-        out.append((name, target))
+            if os.path.isdir(alias) and os.path.samefile(alias, root):
+                out.append((name, os.path.join(alias, "FIXTURE-extracted.txt"), None,
+                            inside, None))
+            else:
+                out.append((name, None, None, "no data-volume alias of the repository"
+                            " exists on this machine", None))
+        elif name == "worktree":
+            repo = os.path.join(tmp, "scratch-repository")
+            tree = os.path.join(tmp, "scratch-worktree")
+            git = ["git", "-c", "user.name=fixture", "-c", "user.email=fixture@example.invalid"]
+            subprocess.run(git + ["init", "-q", repo], check=True)
+            subprocess.run(git + ["-C", repo, "commit", "-q", "--allow-empty", "-m", "fixture"],
+                           check=True)
+            subprocess.run(git + ["-C", repo, "worktree", "add", "-q", "--detach", tree],
+                           check=True)
+            out.append((name, os.path.join(tree, "FIXTURE-extracted.txt"), None, inside,
+                        os.path.realpath(repo)))
     return out
 
 
 def main(argv):
-    ap = argparse.ArgumentParser(prog="extract.py", description=__doc__.split("\n\n")[0],
+    ap = argparse.ArgumentParser(prog="extract.py", description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter,
                                  epilog="It cannot see what a person typed outside the"
                                  " records it is given, nor a paste the harness did not tag.")
     ap.add_argument("records", nargs="*", help="session records (.jsonl), in order")

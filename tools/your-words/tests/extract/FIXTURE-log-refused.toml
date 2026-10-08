@@ -1,0 +1,5 @@
+# a person's real run, logging on, over a fixture record: the run log refuses the row,
+# so the run reads can't read, exits 2 and writes nothing
+mode = "real-run"
+records = ["FIXTURE-string.jsonl"]
+contains = ["the run log refused this run's row (RealReadFixture", "nothing written"]

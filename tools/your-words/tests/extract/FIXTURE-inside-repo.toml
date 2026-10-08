@@ -1,4 +1,5 @@
-# refusals: the string fixture extracted to a place it must refuse
+# refusals inside the repository: by its path, a link, another letter case, the
+# data-volume alias, and a worktree of a scratch repository; each for its printed reason
 mode = "refuse"
 records = ["FIXTURE-string.jsonl"]
-targets = ["inside", "link", "case", "alias"]
+targets = ["inside", "link", "case", "alias", "worktree"]

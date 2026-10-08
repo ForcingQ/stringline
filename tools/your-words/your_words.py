@@ -62,7 +62,12 @@ What it cannot see: meaning (a one-letter change such as strong to wrong, or
 learning to earning, reads corrected; a verbatim fragment cut from a negated
 sentence reads exact; an … over three or more plain words reads exact: read
 the change and the words shown around it); a quote not marked with *" "*; a
-quote split over two lines; anything typed that is not in the typed file.
+quote split over two lines; anything typed that is not in the typed file; a
+negation outside its closed list (not, no, never, none, nor, any word ending in
+n't, and dont, cant, wont and the other apostrophe-less forms in the code):
+cannot, nothing, nobody, nowhere, neither and without are not on it, so
+dropping one reads corrected. A negation typed without its apostrophe and
+quoted with it (dont to don't) reads corrected: the same word, typed two ways.
 
 Exit: 0 nothing absent or unchecked · 1 a quote is absent · 2 none absent,
 some could not be checked. The exit is a report; nothing stops on it."""
@@ -142,11 +147,23 @@ def read_messages(path):
         text = data.decode("utf-8")
     except UnicodeDecodeError:
         return [], "not UTF-8"
-    text = text.removeprefix("﻿")
+    blocks = split_blocks(text.removeprefix("﻿"))
+    return blocks, (None if blocks else "holds no message")
+
+
+def is_blank(line):
+    """The one rule for a blank line, shared by both halves: strip() empties it
+    (a carriage return, a tab or a no-break space alone is blank)."""
+    return line.strip() == ""
+
+
+def split_blocks(text):
+    """The typed file's messages: blocks of non-blank lines, a trailing carriage
+    return taken off each line. The extractor's --times counts blocks with this."""
     blocks, block = [], []
     for line in text.split("\n"):
         line = line.removesuffix("\r")
-        if line.strip() == "":
+        if is_blank(line):
             if block:
                 blocks.append("\n".join(block))
             block = []
@@ -154,7 +171,7 @@ def read_messages(path):
             block.append(line)
     if block:
         blocks.append("\n".join(block))
-    return blocks, (None if blocks else "holds no message")
+    return blocks
 
 
 def _skip_code(line, i):
@@ -521,13 +538,14 @@ def check(sources, words):
                 continue
             exact = [(n, exact_place(t, parts, lead, trail)) for n, t in enumerate(messages, 1)]
             exact = [(n, s) for n, s in exact if s]
-            corr = [] if exact else [(n, corrected_place(t, parts, lead, trail))
-                                     for n, t in enumerate(messages, 1)]
+            corr = [(n, corrected_place(t, parts, lead, trail))
+                    for n, t in enumerate(messages, 1)]
             corr = [(n, c) for n, c in corr if c]
             if exact or corr:
                 n = (exact or corr)[0][0]
                 text_m = messages[n - 1]
-                matched = len(exact) if exact else len(corr)
+                # every message that holds it, exact or corrected, is counted
+                matched = len({m for m, _ in exact} | {m for m, _ in corr})
                 many = f" ({matched} matched)" if matched > 1 else ""
                 if exact:
                     spans = exact[0][1]
@@ -577,12 +595,17 @@ def summary(counts, read, compared, could_not):
 
 def log(kind, note, invoked, read, compared, counts, caught, could_not):
     path = runlog.write(TOOL, OWN_FILES, kind, note, invoked, read, compared,
-                        {"exact": counts["exact"], "corrected": counts["corrected"],
-                         "absent": counts["absent"], "cant_check": counts["cant_check"],
-                         "spoken": counts["spoken"]}, caught, could_not)
+                        row_outcomes(counts), caught, could_not)
+    print(f"logged: {shown_path(path)} ({kind})")
+
+
+def row_outcomes(counts):
+    return {k: counts[k] for k in ("exact", "corrected", "absent", "cant_check", "spoken")}
+
+
+def shown_path(path):
     root = runlog.module_root()
-    shown = os.path.relpath(path, root) if path.startswith(root) else path
-    print(f"logged: {shown} ({kind})")
+    return os.path.relpath(path, root) if path.startswith(root) else path
 
 
 # ---------------------------------------------------------------- self-test
@@ -601,6 +624,22 @@ def selftest(no_log):
             want = tomllib.load(fh)
         pages = sorted(os.path.join(folder, f) for f in os.listdir(folder) if f.endswith(".md"))
         words = os.path.join(folder, want.get("words", "words.txt"))
+        if want.get("mode") == "real-run":
+            # a person's real run, logging on, over fixture pages: the run log
+            # refuses the row, and the run must read can't check, exit 2
+            import contextlib
+            import io
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                code = main(pages + ["--words", words])
+            lines = buf.getvalue().splitlines()
+            ok = code == want["exit"] and all(any(n in line for line in lines)
+                                              for n in want.get("contains", []))
+            results.append(ok)
+            print(f"{'ok  ' if ok else 'FAIL'} {case}: a real run, exit {code}")
+            for line in lines:
+                print(f"       {line}")
+            continue
         lines, counts, _, _, _, _ = check(pages, words)
         got = {k: v for k, v in counts.items() if v}
         code = exit_code(counts)
@@ -662,11 +701,24 @@ def main(argv):
     lines, counts, read, compared, could_not, caught = check(sources, words)
     for line in lines:
         print(line)
+    refused, path, kind = None, None, "planted" if args.planted else "real"
+    if not args.no_log:
+        try:
+            path = runlog.write(TOOL, OWN_FILES, kind, args.planted or "", "person", read,
+                                compared, row_outcomes(counts), caught, could_not)
+        except runlog.RunLogError as exc:
+            refused = (f"the run log refused this run's row ({type(exc).__name__}: {exc});"
+                       " nothing was logged" + ("; a run on fixtures is a plant: give"
+                                                " --planted" if kind == "real" else ""))
+            counts["cant_check"] += 1
+            print(f"CAN'T CHECK · {refused}")
+            could_not.append(refused)
     for line in summary(counts, read, compared, could_not):
         print(line)
-    if not args.no_log:
-        kind = "planted" if args.planted else "real"
-        log(kind, args.planted or "", "person", read, compared, counts, caught, could_not)
+    if refused:
+        return 2  # the run is a can't tell: never a crash, never 1
+    if path:
+        print(f"logged: {shown_path(path)} ({kind})")
     return exit_code(counts)
 
 

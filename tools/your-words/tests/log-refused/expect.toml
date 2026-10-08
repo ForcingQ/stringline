@@ -1,0 +1,4 @@
+# the run log refuses a real row that read fixture material: can't check, exit 2, no crash
+mode = "real-run"
+exit = 2
+contains = ["CAN'T CHECK · the run log refused this run's row (RealReadFixture", "nothing was logged"]
