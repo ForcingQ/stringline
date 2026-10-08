@@ -1,3 +1,0 @@
-outcomes = { absent = 1 }
-exit = 1
-contains = ["an … skips a negation, 8 typed words past the quote's end"]

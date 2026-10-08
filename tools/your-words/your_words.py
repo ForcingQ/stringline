@@ -318,14 +318,7 @@ def part_spans(qt, mt):
     return out
 
 
-EXPLAIN_STEPS = 20000  # the bound on a search that explains; the deciding search has none
-EXPLAIN_USED = [0]      # the most steps any one explaining search took (the self-test reads it)
-
-
-def corrected_place(text, parts, lead, trail, neg=True, ordered=True):
-    """The place where a quote reads corrected, or None. The two switches never
-    decide an outcome: diagnose turns one rule off at a time to learn which rule
-    alone kept an absent quote from reading corrected."""
+def corrected_place(text, parts, lead, trail):
     mt = tokens(text)
     qts = [tokens(p) for p in parts]
     if any(not q for q in qts):
@@ -334,29 +327,16 @@ def corrected_place(text, parts, lead, trail, neg=True, ordered=True):
     cands = [sorted((c for c in part_spans(q, mt) if c[2] <= budget),
                     key=lambda c: (c[2], c[0])) for q in qts]
     best = None
-    steps = 0
-    explaining = not (neg and ordered)
 
     def neg_in(a, b):
         return any(is_negation(t.raw) for t in mt[a:b])
 
     def go(idx, pos, cost, drops, chosen):
-        nonlocal best, steps
+        nonlocal best
         if best and cost > best[0]:
             return
-        if explaining:
-            # a search with a rule off explains an absent quote; it never decides
-            # an outcome. It needs one placement, not the best, so it stops at the
-            # first and at a step bound. Cut short, it finds nothing and an older
-            # reason is given.
-            steps += 1
-            EXPLAIN_USED[0] = max(EXPLAIN_USED[0], steps)
-            if best or steps > EXPLAIN_STEPS:
-                return
         if idx == len(parts):
-            if neg and trail and neg_in(chosen[-1][1], len(mt)):
-                return
-            if not ordered and [c[0] for c in chosen] == sorted(c[0] for c in chosen):
+            if trail and neg_in(chosen[-1][1], len(mt)):
                 return
             key = (cost, [c[0] for c in chosen])
             if best is None or key < (best[0], [c[0] for c in best[1]]):
@@ -364,16 +344,11 @@ def corrected_place(text, parts, lead, trail, neg=True, ordered=True):
             return
         for c in cands[idx]:
             s, e, ccost, cd, _ = c
-            if cost + ccost > budget or drops + cd > 2:
+            if s < pos or cost + ccost > budget or drops + cd > 2:
                 continue
-            if ordered:
-                if s < pos:
-                    continue
-                if neg and idx == 0 and lead and neg_in(0, s):
-                    continue
-                if neg and idx > 0 and neg_in(pos, s):
-                    continue
-            elif any(s < pe and ps < e for ps, pe, *_ in chosen):
+            if idx == 0 and lead and neg_in(0, s):
+                continue
+            if idx > 0 and neg_in(pos, s):
                 continue
             go(idx + 1, e, cost + ccost, drops + cd, chosen + [c])
     go(0, 0, 0, 0, [])
@@ -435,40 +410,7 @@ def context(text, start, end):
     return (" ".join(before) or "[start]"), (" ".join(after) or "[end]")
 
 
-def _splice_reason(messages, parts, lead, trail):
-    """Which single rule kept an absent quote from reading corrected, learned by
-    turning that one rule off in the same search that decides the outcome, so a
-    reason is given only when it is the cause. First, in any message: with the
-    negation rule off the quote places, so an … covers a negation (where, as a
-    count of typed words, never the word). Else: with the order rule off it
-    places, in an order that is not the quote's. Else None."""
-    for n, text in enumerate(messages, 1):
-        got = corrected_place(text, parts, lead, trail, neg=False)
-        if not got:
-            continue
-        mt, _, chosen = got
-        spots = [(chosen[i][1], chosen[i + 1][0], i) for i in range(len(chosen) - 1)]
-        for a, b, i in spots:
-            if any(is_negation(t.raw) for t in mt[a:b]):
-                return n, f"an … skips a negation, between parts {i + 1} and {i + 2}"
-        if trail:
-            a = chosen[-1][1]
-            k = next((j - a + 1 for j in range(a, len(mt)) if is_negation(mt[j].raw)), None)
-            if k:
-                return n, f"an … skips a negation, {k} typed words past the quote's end"
-        if lead:
-            a = chosen[0][0]
-            k = next((a - j for j in range(a - 1, -1, -1) if is_negation(mt[j].raw)), None)
-            if k:
-                return n, f"an … skips a negation, {k} typed words before the quote's start"
-    if len(parts) > 1:
-        for n, text in enumerate(messages, 1):
-            if corrected_place(text, parts, lead, trail, neg=False, ordered=False):
-                return n, "the parts are out of order"
-    return None
-
-
-def diagnose(messages, parts, lead=False, trail=False):
+def diagnose(messages, parts):
     """Why a quote is absent: the nearest message and the first rule it breaks."""
     qt = [t for p in parts for t in tokens(p)]
     best = None
@@ -511,9 +453,6 @@ def diagnose(messages, parts, lead=False, trail=False):
     same = sum(1 for o, i, j in ops if o == "sub" and qt[i].f == mt[j].f)
     if same == 0:
         return None, "no message holds its words"
-    found = _splice_reason(messages, parts, lead, trail)  # the cause, when one rule alone is it
-    if found:
-        return found
     for o, i, j in ops:
         if o == "sub" and qt[i].f != mt[j].f and (is_negation(qt[i].raw) or
                                                   is_negation(mt[j].raw)):
@@ -536,7 +475,7 @@ def diagnose(messages, parts, lead=False, trail=False):
     allowed = math.ceil(len(qt) / 8)
     if differ > allowed:
         return n, f"{differ} of {len(qt)} words differ; at most {allowed}"
-    return n, "an … skips a negation, or the parts are out of order (which, it cannot tell)"
+    return n, "an … skips a negation, or the parts are out of order"
 
 
 # ---------------------------------------------------------------- the run
@@ -632,7 +571,7 @@ def check(sources, words):
                                  f" · {detail} · before: {before} · after: {after}")
                 continue
             counts["absent"] += 1
-            near, why = diagnose(messages, parts, lead, trail)
+            near, why = diagnose(messages, parts)
             nearest = f" · nearest: message {near}" if near else ""
             if private:
                 why = why.split(":")[0]
@@ -730,19 +669,14 @@ def selftest(no_log):
             for line in lines:
                 print(f"       {line}")
             continue
-        EXPLAIN_USED[0] = 0
         lines, counts, _, _, _, _ = check(pages, words)
         got = {k: v for k, v in counts.items() if v}
         code = exit_code(counts)
         ok = got == want["outcomes"] and code == want["exit"]
         for needle in want.get("contains", []):
             ok = ok and any(needle in line for line in lines)
-        cost = ""
-        if "max_explain_steps" in want:  # a cost case: counted in steps, never timed
-            ok = ok and EXPLAIN_USED[0] <= want["max_explain_steps"]
-            cost = f" · explaining search: {EXPLAIN_USED[0]} steps, at most {want['max_explain_steps']}"
         results.append(ok)
-        print(f"{'ok  ' if ok else 'FAIL'} {case}: {got} exit {code}{cost}")
+        print(f"{'ok  ' if ok else 'FAIL'} {case}: {got} exit {code}")
         for line in lines:
             print(f"       {line}")
         for k, v in counts.items():

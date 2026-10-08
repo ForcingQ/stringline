@@ -1,3 +1,0 @@
-outcomes = { absent = 1 }
-exit = 1
-contains = ["2 of 8 words differ"]
